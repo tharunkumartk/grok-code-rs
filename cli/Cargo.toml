@@ -1,0 +1,17 @@
+[package]
+name = "grok-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "grok"
+path = "src/main.rs"
+
+[dependencies]
+grok-core = { path = "../core" }
+grok-tui = { path = "../tui" }
+
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

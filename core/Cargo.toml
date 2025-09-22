@@ -1,0 +1,18 @@
+[package]
+name = "grok-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+tracing = { workspace = true }
+reqwest = { version = "0.11", features = ["json", "gzip"] }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
