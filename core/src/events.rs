@@ -169,7 +169,6 @@ pub enum EventSendError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::ResponseMetadata;
     
     #[tokio::test]
     async fn test_event_bus() {

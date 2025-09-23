@@ -130,7 +130,7 @@ async fn test_shell_exec_empty_command() {
 #[tokio::test]
 async fn test_shell_exec_with_cwd() {
     let temp_dir = create_temp_dir().await;
-    let test_file_path = create_temp_file(temp_dir.path(), "test_file.txt", "test content").await;
+    let _test_file_path = create_temp_file(temp_dir.path(), "test_file.txt", "test content").await;
     
     let (sender, mut receiver) = setup_event_bus();
     let executor = ShellExecutor::new(sender, 1024 * 1024);

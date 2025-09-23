@@ -7,7 +7,6 @@ use tokio::sync::mpsc;
 pub struct Command {
     pub name: String,
     pub description: String,
-    pub syntax: String,
 }
 
 /// Application state
@@ -78,22 +77,18 @@ impl AppState {
             Command {
                 name: "/context".to_string(),
                 description: "Show current token usage information".to_string(),
-                syntax: "/context".to_string(),
             },
             Command {
                 name: "/quit".to_string(),
                 description: "Exit the application".to_string(),
-                syntax: "/quit or /q".to_string(),
             },
             Command {
                 name: "/clear".to_string(),
                 description: "Clear conversation history".to_string(),
-                syntax: "/clear".to_string(),
             },
             Command {
                 name: "/info".to_string(),
                 description: "Show agent information".to_string(),
-                syntax: "/info".to_string(),
             },
         ];
 

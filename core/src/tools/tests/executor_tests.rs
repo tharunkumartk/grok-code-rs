@@ -50,8 +50,8 @@ async fn test_tool_executor_fs_read() {
     // Find ToolEnd event and verify success
     let (ok, duration) = find_tool_end_event(&events).unwrap();
     assert!(ok);
-    // Duration might be 0 on fast systems, so just check it's a valid number
-    assert!(duration >= 0);
+    // Duration should be a valid number (u64 is always >= 0)
+    assert!(duration < u64::MAX);
 }
 
 #[tokio::test]
@@ -113,7 +113,7 @@ async fn test_tool_executor_fs_search() {
     
     assert!(result.is_ok());
     let result_value = result.unwrap();
-    let search_result: FsSearchResult = serde_json::from_value(result_value).unwrap();
+    let _search_result: FsSearchResult = serde_json::from_value(result_value).unwrap();
     // May or may not find results depending on existing .rs files in the directory
     // Just check that the operation completed successfully
     

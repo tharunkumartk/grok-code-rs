@@ -366,6 +366,170 @@ async fn test_fs_apply_patch_invalid_format() {
 }
 
 #[tokio::test]
+async fn test_fs_apply_patch_real_modification() {
+    let temp_dir = create_temp_dir().await;
+    let original_content = r#"fn main() {
+    let name = "World";
+    println!("Hello, {}!", name);
+    // TODO: Add more functionality
+}"#;
+    
+    let file_path = create_temp_file(temp_dir.path(), "hello.rs", original_content).await;
+    
+    let (sender, mut receiver) = setup_event_bus();
+    let executor = FsExecutor::new(sender, 1024 * 1024);
+    
+    // Create a realistic patch that changes the greeting and adds a function
+    let patch = format!(
+        r#"--- {0}/hello.rs
++++ {0}/hello.rs
+@@ -1,5 +1,9 @@
+ fn main() {{
+-    let name = "World";
+-    println!("Hello, {{}}!", name);
+-    // TODO: Add more functionality
++    let name = "Rust";
++    println!("Hello, {{}}!", name);
++    greet_user();
++}}
++
++fn greet_user() {{
++    println!("Welcome to Rust programming!");
+ }}"#,
+        temp_dir.path().display()
+    );
+    
+    // First verify the original content
+    let original = tokio::fs::read_to_string(&file_path).await.unwrap();
+    assert_eq!(original, original_content);
+    assert!(original.contains("World"));
+    assert!(!original.contains("Rust"));
+    assert!(!original.contains("greet_user"));
+    
+    // Apply the patch for real (not dry run)
+    let args = json!({
+        "unified_diff": patch,
+        "dry_run": false
+    });
+    
+    let result = executor.execute_apply_patch_with_result("test_id".to_string(), args).await;
+    assert!(result.is_ok());
+    
+    let result_value = result.unwrap();
+    let patch_result: FsApplyPatchResult = serde_json::from_value(result_value).unwrap();
+    assert!(patch_result.success, "Patch should succeed: {}", patch_result.summary);
+    assert!(patch_result.rejected_hunks.is_none() || patch_result.rejected_hunks.as_ref().unwrap().is_empty());
+    
+    // Verify the file was actually modified
+    let modified_content = tokio::fs::read_to_string(&file_path).await.unwrap();
+    assert_ne!(modified_content, original_content, "File content should have changed");
+    assert!(!modified_content.contains("World"), "Old content should be replaced");
+    assert!(modified_content.contains("Rust"), "New content should be present");
+    assert!(modified_content.contains("greet_user"), "New function should be added");
+    assert!(modified_content.contains("Welcome to Rust programming!"), "New function body should be present");
+    
+    // Check events - should have 2 progress events (start + finish) and 1 result
+    let events = collect_events(&mut receiver, 3).await;
+    assert_eq!(count_progress_events(&events), 2);
+    assert!(find_tool_result_event(&events).is_some());
+}
+
+#[tokio::test]
+async fn test_fs_apply_patch_create_new_file() {
+    let temp_dir = create_temp_dir().await;
+    let new_file_path = temp_dir.path().join("new_file.py");
+    
+    let (sender, mut receiver) = setup_event_bus();
+    let executor = FsExecutor::new(sender, 1024 * 1024);
+    
+    // Create a patch that creates a new file
+    let patch = format!(
+        r#"--- /dev/null
++++ {}/new_file.py
+@@ -0,0 +1,6 @@
++#!/usr/bin/env python3
++
++def hello_world():
++    print("Hello from a new Python file!")
++
++hello_world()
+"#,
+        temp_dir.path().display()
+    );
+    
+    // Verify file doesn't exist initially
+    assert!(!new_file_path.exists());
+    
+    // Apply the patch to create the new file
+    let args = json!({
+        "unified_diff": patch,
+        "dry_run": false
+    });
+    
+    let result = executor.execute_apply_patch_with_result("test_id".to_string(), args).await;
+    assert!(result.is_ok());
+    
+    let result_value = result.unwrap();
+    let patch_result: FsApplyPatchResult = serde_json::from_value(result_value).unwrap();
+    assert!(patch_result.success, "Patch should succeed: {}", patch_result.summary);
+    
+    // Verify the new file was created with correct content
+    assert!(new_file_path.exists(), "New file should have been created");
+    let content = tokio::fs::read_to_string(&new_file_path).await.unwrap();
+    assert!(content.contains("#!/usr/bin/env python3"));
+    assert!(content.contains("def hello_world():"));
+    assert!(content.contains("Hello from a new Python file!"));
+    assert!(content.contains("hello_world()"));
+    
+    let events = collect_events(&mut receiver, 3).await;
+    assert_eq!(count_progress_events(&events), 2);
+}
+
+#[tokio::test]
+async fn test_fs_apply_patch_delete_file() {
+    let temp_dir = create_temp_dir().await;
+    let file_content = "This file will be deleted by the patch.";
+    let file_path = create_temp_file(temp_dir.path(), "to_delete.txt", file_content).await;
+    
+    let (sender, mut receiver) = setup_event_bus();
+    let executor = FsExecutor::new(sender, 1024 * 1024);
+    
+    // Create a patch that deletes the file
+    let patch = format!(
+        r#"--- {}/to_delete.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-This file will be deleted by the patch.
+"#,
+        temp_dir.path().display()
+    );
+    
+    // Verify file exists initially
+    assert!(file_path.exists());
+    let original = tokio::fs::read_to_string(&file_path).await.unwrap();
+    assert_eq!(original, file_content);
+    
+    // Apply the patch to delete the file
+    let args = json!({
+        "unified_diff": patch,
+        "dry_run": false
+    });
+    
+    let result = executor.execute_apply_patch_with_result("test_id".to_string(), args).await;
+    assert!(result.is_ok());
+    
+    let result_value = result.unwrap();
+    let patch_result: FsApplyPatchResult = serde_json::from_value(result_value).unwrap();
+    assert!(patch_result.success, "Patch should succeed: {}", patch_result.summary);
+    
+    // Verify the file was actually deleted
+    assert!(!file_path.exists(), "File should have been deleted");
+    
+    let events = collect_events(&mut receiver, 3).await;
+    assert_eq!(count_progress_events(&events), 2);
+}
+
+#[tokio::test]
 async fn test_invalid_json_args() {
     let (sender, _receiver) = setup_event_bus();
     let executor = FsExecutor::new(sender, 1024 * 1024);
