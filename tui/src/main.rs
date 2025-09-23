@@ -1,6 +1,8 @@
 use anyhow::Result;
+use crossterm::execute;
 use grok_core::{AgentFactory, EventBus, Session};
-// use std::time::Duration;
+use std::env;
+use std::io::{self, Write};
 use tracing::info;
 
 mod app;
@@ -29,12 +31,31 @@ async fn main() -> Result<()> {
     // Optional: load .env (ignore errors if missing)
     let _ = dotenvy::dotenv();
 
-    // Create OpenRouter agent (requires OPENROUTER_API_KEY)
+    // Check for OpenRouter API key and prompt if missing
+    if env::var("OPENROUTER_API_KEY").is_err() {
+        println!("OpenRouter API key not found in environment.");
+        println!("Get one from: https://openrouter.ai/keys");
+        print!("Enter your API key: ");
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let key = input.trim().to_string();
+        
+        if key.is_empty() {
+            eprintln!("Error: API key cannot be empty.");
+            std::process::exit(1);
+        }
+        
+        env::set_var("OPENROUTER_API_KEY", key);
+        println!("API key set. Proceeding...");
+    }
+
+    // Create OpenRouter agent (now with key guaranteed to be set)
     let agent = match AgentFactory::create_openrouter_from_env(event_sender.clone()) {
         Ok(agent) => agent,
         Err(e) => {
-            eprintln!("Error: {}. Make sure OPENROUTER_API_KEY environment variable is set.", e);
-            eprintln!("Get an API key from: https://openrouter.ai/keys");
+            eprintln!("Error creating agent: {}. Please check your API key.", e);
             std::process::exit(1);
         }
     };
