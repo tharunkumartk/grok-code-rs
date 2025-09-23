@@ -157,6 +157,100 @@ impl ToolRegistry {
             timeout_ms: Some(10000),
         });
 
+        // fs.find
+        self.specs.insert(ToolName::FsFind, ToolSpec {
+            name: ToolName::FsFind,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "File or directory name pattern to search for" },
+                    "base_path": { "type": "string", "description": "Base directory to search from (default: current directory)" },
+                    "fuzzy": { "type": "boolean", "description": "Enable fuzzy matching (default: true)" },
+                    "case_sensitive": { "type": "boolean", "description": "Case sensitive search (default: false)" },
+                    "file_type": { 
+                        "type": "string", 
+                        "enum": ["file", "dir", "both"],
+                        "description": "Type of items to find (default: both)" 
+                    },
+                    "max_results": { "type": "integer", "minimum": 1, "description": "Maximum number of results (default: 50)" },
+                    "ignore_patterns": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Gitignore-style patterns to exclude from search"
+                    }
+                },
+                "required": ["pattern"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "matches": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string" },
+                                "score": { "type": "number" },
+                                "match_type": { "type": "string" }
+                            }
+                        }
+                    },
+                    "search_time_ms": { "type": "integer" }
+                },
+                "required": ["matches", "search_time_ms"]
+            }),
+            streaming: false,
+            side_effects: false,
+            needs_approval: false,
+            timeout_ms: Some(10000),
+        });
+
+        // code.symbols
+        self.specs.insert(ToolName::CodeSymbols, ToolSpec {
+            name: ToolName::CodeSymbols,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to analyze for symbols" },
+                    "symbol_types": {
+                        "type": "array",
+                        "items": { 
+                            "type": "string",
+                            "enum": ["functions", "classes", "structs", "enums", "traits", "modules", "variables", "constants", "types"]
+                        },
+                        "description": "Types of symbols to extract (default: all)"
+                    },
+                    "language": { "type": "string", "description": "Programming language (auto-detected if not specified)" }
+                },
+                "required": ["path"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "symbols": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "symbol_type": { "type": "string" },
+                                "line_start": { "type": "integer" },
+                                "line_end": { "type": "integer" },
+                                "scope": { "type": "string" },
+                                "visibility": { "type": "string" }
+                            }
+                        }
+                    },
+                    "language": { "type": "string" }
+                },
+                "required": ["symbols", "language"]
+            }),
+            streaming: false,
+            side_effects: false,
+            needs_approval: false,
+            timeout_ms: Some(5000),
+        });
+
         // shell.exec
         self.specs.insert(ToolName::ShellExec, ToolSpec {
             name: ToolName::ShellExec,

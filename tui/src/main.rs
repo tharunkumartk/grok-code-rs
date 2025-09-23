@@ -6,7 +6,10 @@ use tracing::info;
 mod app;
 mod components;
 mod events;
+mod handlers;
 pub mod markdown;
+mod state;
+mod utils;
 
 use app::App;
 

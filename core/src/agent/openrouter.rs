@@ -17,6 +17,7 @@ pub struct OpenRouterAgent {
     title: Option<String>,
     event_sender: EventSender,
     tools: ToolRegistry,
+    enable_interleaved_thinking: bool,
 }
 
 impl OpenRouterAgent {
@@ -27,6 +28,11 @@ impl OpenRouterAgent {
         title: Option<String>,
         event_sender: EventSender,
     ) -> anyhow::Result<Self> {
+        // Check environment variable for interleaved thinking setting
+        let enable_interleaved_thinking = std::env::var("GROK_ENABLE_INTERLEAVED_THINKING")
+            .map(|v| v.to_lowercase() == "true" || v == "1")
+            .unwrap_or(false);
+        
         Ok(Self {
             info: AgentInfo {
                 name: "OpenRouter Agent".to_string(),
@@ -39,6 +45,7 @@ impl OpenRouterAgent {
             title,
             event_sender,
             tools: ToolRegistry::new(),
+            enable_interleaved_thinking,
         })
     }
 
@@ -48,7 +55,9 @@ impl OpenRouterAgent {
             "fs.search" => Some(ToolName::FsSearch),
             "fs.write" => Some(ToolName::FsWrite),
             "fs.apply_patch" => Some(ToolName::FsApplyPatch),
+            "fs.find" => Some(ToolName::FsFind),
             "shell.exec" => Some(ToolName::ShellExec),
+            "code.symbols" => Some(ToolName::CodeSymbols),
             _ => None,
         }
     }
@@ -63,7 +72,9 @@ impl OpenRouterAgent {
                     ToolName::FsSearch => "fs.search",
                     ToolName::FsWrite => "fs.write",
                     ToolName::FsApplyPatch => "fs.apply_patch",
+                    ToolName::FsFind => "fs.find",
                     ToolName::ShellExec => "shell.exec",
+                    ToolName::CodeSymbols => "code.symbols",
                 };
                 json!({
                     "type": "function",
@@ -78,7 +89,29 @@ impl OpenRouterAgent {
     }
 
     fn get_system_prompt(&self) -> String {
-        r#"You are a coding agent running in Grok Code, a terminal-based coding assistant. You are expected to be precise, safe, and helpful.
+        let thinking_instructions = if self.enable_interleaved_thinking {
+            r#"
+
+# Interleaved Thinking
+You have the ability to think out loud between tool calls. When you need to reason about tool results or plan your next steps, you can share your internal thought process with the user. This makes your decision-making transparent and helps users understand your reasoning.
+
+To share your thinking:
+1. After receiving tool results, briefly analyze what you learned
+2. Explain your reasoning for the next tool call or action
+3. Share any insights, patterns, or connections you notice
+4. Be concise but informative - users value seeing your thought process
+
+Example thinking patterns:
+- "Based on the search results, I can see this codebase uses React with TypeScript. Let me examine the main component structure."
+- "The error suggests a missing dependency. I should check the package.json file to understand the current setup."
+- "I found the bug in the authentication flow. The issue is in the token validation logic. Let me examine that specific file."
+
+Your thinking should be natural and focused on the task at hand."#
+        } else {
+            ""
+        };
+
+        format!(r#"You are a coding agent running in Grok Code, a terminal-based coding assistant. You are expected to be precise, safe, and helpful.
 
 Your capabilities:
 - Receive user prompts and analyze codebases
@@ -87,7 +120,7 @@ Your capabilities:
 - Help with debugging, code analysis, implementation, and development tasks
 
 # Personality
-Your default personality is concise, direct, and friendly. You communicate efficiently, keeping users clearly informed about ongoing actions without unnecessary detail. You prioritize actionable guidance, clearly stating assumptions and next steps.
+Your default personality is concise, direct, and friendly. You communicate efficiently, keeping users clearly informed about ongoing actions without unnecessary detail. You prioritize actionable guidance, clearly stating assumptions and next steps.{}
 
 # Tool Usage Guidelines
 
@@ -96,6 +129,10 @@ Your default personality is concise, direct, and friendly. You communicate effic
 - Use `fs.search` to find code patterns, functions, or text across the codebase
 - Use `fs.write` to create or modify files (respects overwrite settings)
 - Use `fs.apply_patch` for applying unified diffs
+- Use `fs.find` to locate files and directories by name with fuzzy matching
+
+**Code Analysis:**
+- Use `code.symbols` to extract symbols (functions, classes, structs, etc.) from source files
 
 **Shell Commands:**
 - Use `shell.exec` to run terminal commands, build projects, run tests, etc.
@@ -135,7 +172,7 @@ Your default personality is concise, direct, and friendly. You communicate effic
 - Use appropriate tools for each task (search vs read vs execute)
 - Provide progress updates for longer operations
 
-Your goal is to be a helpful, efficient coding partner that understands codebases quickly and makes precise, well-reasoned changes."#.to_string()
+Your goal is to be a helpful, efficient coding partner that understands codebases quickly and makes precise, well-reasoned changes."#, thinking_instructions)
     }
 
     fn convert_history(&self, history: &[ChatMessage]) -> Vec<Value> {
@@ -147,9 +184,11 @@ Your goal is to be a helpful, efficient coding partner that understands codebase
                     crate::session::MessageRole::Agent => "assistant",
                     crate::session::MessageRole::System => "system",
                     crate::session::MessageRole::Error => "system",
+                    crate::session::MessageRole::Thinking => "assistant",
                 };
                 let content = match m.role {
                     crate::session::MessageRole::Error => format!("[error] {}", m.content),
+                    crate::session::MessageRole::Thinking => format!("[thinking] {}", m.content),
                     _ => m.content.clone(),
                 };
                 json!({"role": role, "content": content})
@@ -239,7 +278,8 @@ impl Agent for OpenRouterAgent {
             // Tool calls?
             if let Some(msg) = choice.message {
                 if let Some(tool_calls) = msg.tool_calls {
-                    let executor = ToolExecutor::new(self.event_sender.clone());
+                    let executor = ToolExecutor::new(self.event_sender.clone())
+                        .with_max_output_size(1024 * 1024); // 1MB limit, can be overridden by GROK_TOOL_MAX_OUTPUT_SIZE env var
                     for call in tool_calls {
                         let name = call.function.name;
                         let tool_name = self.map_tool_name(&name)
@@ -254,8 +294,12 @@ impl Agent for OpenRouterAgent {
 
                         // Execute tool and get result
                         let tool_result = match executor.execute_tool_with_result(call.id.clone(), tool_name.clone(), args.clone()).await {
-                            Ok(result) => result,
+                            Ok(result) => json!({
+                                "success": true,
+                                "result": result
+                            }),
                             Err(e) => json!({
+                                "success": false,
                                 "error": e,
                                 "tool": format!("{:?}", tool_name),
                                 "args": args
@@ -269,6 +313,37 @@ impl Agent for OpenRouterAgent {
                             "content": serde_json::to_string_pretty(&tool_result).unwrap_or_else(|_| "{}".to_string())
                         }));
                     }
+                    
+                    // If interleaved thinking is enabled, add a turn for the assistant to think
+                    // about the tool results before making the next tool call
+                    if self.enable_interleaved_thinking && turns > 1 {
+                        let thinking_body = json!({
+                            "model": self.model,
+                            "messages": messages.clone(),
+                            "max_tokens": 200, // Limit thinking to keep it concise
+                            "temperature": 0.7 // Allow some creativity in thinking
+                        });
+                        
+                        if let Ok(thinking_resp) = self.http_post(&thinking_body).await {
+                            if let Some(thinking_choice) = thinking_resp.choices.into_iter().next() {
+                                if let Some(thinking_msg) = thinking_choice.message {
+                                    if let Some(thinking_content) = thinking_msg.content {
+                                        if !thinking_content.trim().is_empty() {
+                                            // Emit thinking event for UI display
+                                            let _ = self.event_sender.send_agent_thinking(thinking_content.clone());
+                                            
+                                            // Add thinking to conversation history
+                                            messages.push(json!({
+                                                "role": "assistant",
+                                                "content": format!("[THINKING] {}", thinking_content)
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
                     // Continue loop for next assistant turn
                     continue;
                 }

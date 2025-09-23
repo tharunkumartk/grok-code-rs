@@ -21,6 +21,9 @@ pub enum AppEvent {
     /// Agent encountered an error
     AgentError(AgentError),
     
+    /// Agent thinking step (for interleaved thinking)
+    AgentThinking(String),
+    
     /// Application should quit
     Quit,
     
@@ -36,7 +39,7 @@ pub enum AppEvent {
     ChatCompleted { token_usage: Option<TokenUsage> },
 
     // Tool lifecycle events
-    ToolBegin { id: String, tool: ToolName, summary: String },
+    ToolBegin { id: String, tool: ToolName, summary: String, args: Option<serde_json::Value> },
     ToolProgress { id: String, message: String },
     ToolStdout { id: String, chunk: String },
     ToolStderr { id: String, chunk: String },
@@ -58,7 +61,9 @@ pub enum ToolName {
     FsSearch,
     FsWrite,
     FsApplyPatch,
+    FsFind,
     ShellExec,
+    CodeSymbols,
 }
 
 /// Token usage information
@@ -141,6 +146,11 @@ impl EventSender {
     /// Send agent error
     pub fn send_agent_error(&self, error: AgentError) -> Result<(), EventSendError> {
         self.send(AppEvent::AgentError(error))
+    }
+    
+    /// Send agent thinking step
+    pub fn send_agent_thinking(&self, thinking: String) -> Result<(), EventSendError> {
+        self.send(AppEvent::AgentThinking(thinking))
     }
     
     /// Send quit signal

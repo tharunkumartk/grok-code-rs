@@ -17,6 +17,7 @@ pub struct ActiveTool {
     pub id: String,
     pub tool: ToolName,
     pub summary: String,
+    pub args: Option<serde_json::Value>,
     pub start_time: SystemTime,
     pub status: ToolStatus,
     pub stdout: String,
@@ -47,6 +48,8 @@ pub enum MessageRole {
     Agent,
     System,
     Error,
+    /// Agent's internal thinking process (visible to user when enabled)
+    Thinking,
 }
 
 impl Session {
@@ -131,6 +134,16 @@ impl Session {
         self.messages.push(message);
     }
     
+    /// Add a thinking message to the conversation
+    pub fn add_thinking_message(&mut self, content: String) {
+        let message = ChatMessage {
+            role: MessageRole::Thinking,
+            content,
+            timestamp: SystemTime::now(),
+        };
+        self.messages.push(message);
+    }
+    
     /// Clear all messages
     pub fn clear(&mut self) {
         self.messages.clear();
@@ -148,11 +161,12 @@ impl Session {
     }
 
     /// Handle tool begin event
-    pub fn handle_tool_begin(&mut self, id: String, tool: ToolName, summary: String) {
+    pub fn handle_tool_begin(&mut self, id: String, tool: ToolName, summary: String, args: Option<serde_json::Value>) {
         let active_tool = ActiveTool {
             id: id.clone(),
             tool,
             summary,
+            args,
             start_time: SystemTime::now(),
             status: ToolStatus::Running,
             stdout: String::new(),
@@ -198,6 +212,11 @@ impl Session {
             tool.status = if ok { ToolStatus::Completed } else { ToolStatus::Failed };
         }
     }
+    
+    /// Handle agent thinking event
+    pub fn handle_agent_thinking(&mut self, thinking: String) {
+        self.add_thinking_message(thinking);
+    }
 }
 
 impl ChatMessage {
@@ -208,6 +227,7 @@ impl ChatMessage {
             MessageRole::Agent => format!("Agent: {}", self.content),
             MessageRole::System => format!("System: {}", self.content),
             MessageRole::Error => format!("Error: {}", self.content),
+            MessageRole::Thinking => format!("💭 Thinking: {}", self.content),
         }
     }
     
@@ -218,6 +238,7 @@ impl ChatMessage {
             MessageRole::Agent => "green",
             MessageRole::System => "yellow",
             MessageRole::Error => "red",
+            MessageRole::Thinking => "cyan",
         }
     }
 }

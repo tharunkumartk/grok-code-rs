@@ -182,6 +182,11 @@ pub fn parse_markdown(text: &str) -> Vec<Line<'static>> {
 
 /// Wraps markdown lines to fit within a given width
 pub fn wrap_markdown_lines(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+    // If width is 0, don't wrap to avoid infinite loops
+    if width == 0 {
+        return lines;
+    }
+
     let mut wrapped_lines = Vec::new();
     
     for line in lines {

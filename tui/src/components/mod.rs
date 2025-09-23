@@ -1,8 +1,13 @@
 // UI components for the TUI
-// These will be expanded in future phases
 
-#[allow(dead_code)]
-pub struct ChatDisplay;
+pub mod chat;
+pub mod input;
+pub mod tools;
+pub mod status;
+pub mod command_palette;
 
-#[allow(dead_code)]
-pub struct InputWidget;
+pub use chat::ChatComponent;
+pub use input::InputComponent;
+pub use tools::ToolsComponent;
+pub use status::StatusComponent;
+pub use command_palette::CommandPaletteComponent;

@@ -69,6 +69,55 @@ pub struct FsApplyPatchResult {
     pub summary: String,
 }
 
+// File finding tool types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsFindArgs {
+    pub pattern: String,
+    pub base_path: Option<String>,
+    pub fuzzy: Option<bool>,
+    pub case_sensitive: Option<bool>,
+    pub file_type: Option<String>, // "file", "dir", "both"
+    pub max_results: Option<u32>,
+    pub ignore_patterns: Option<Vec<String>>, // gitignore-style patterns
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileMatch {
+    pub path: String,
+    pub score: Option<f64>, // relevance score for fuzzy matching
+    pub match_type: String, // "exact", "fuzzy", "partial"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsFindResult {
+    pub matches: Vec<FileMatch>,
+    pub search_time_ms: u64,
+}
+
+// Code analysis tool types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSymbolsArgs {
+    pub path: String,
+    pub symbol_types: Option<Vec<String>>, // "functions", "classes", "variables", etc.
+    pub language: Option<String>, // auto-detect if not specified
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSymbol {
+    pub name: String,
+    pub symbol_type: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub scope: Option<String>,
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSymbolsResult {
+    pub symbols: Vec<CodeSymbol>,
+    pub language: String,
+}
+
 // Shell execution tool types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellExecArgs {
