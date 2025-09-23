@@ -3,7 +3,7 @@ use crate::events::{AppEvent, EventSender, ToolName, TokenUsage};
 use crate::session::ChatMessage;
 use crate::tools::{ToolExecutor, ToolRegistry};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -77,6 +77,67 @@ impl OpenRouterAgent {
             .collect()
     }
 
+    fn get_system_prompt(&self) -> String {
+        r#"You are a coding agent running in Grok Code, a terminal-based coding assistant. You are expected to be precise, safe, and helpful.
+
+Your capabilities:
+- Receive user prompts and analyze codebases
+- Use tools to read files, search code, write files, apply patches, and execute shell commands
+- Communicate clearly and concisely with users
+- Help with debugging, code analysis, implementation, and development tasks
+
+# Personality
+Your default personality is concise, direct, and friendly. You communicate efficiently, keeping users clearly informed about ongoing actions without unnecessary detail. You prioritize actionable guidance, clearly stating assumptions and next steps.
+
+# Tool Usage Guidelines
+
+**File Operations:**
+- Use `fs.read` to read file contents with optional byte ranges
+- Use `fs.search` to find code patterns, functions, or text across the codebase
+- Use `fs.write` to create or modify files (respects overwrite settings)
+- Use `fs.apply_patch` for applying unified diffs
+
+**Shell Commands:**
+- Use `shell.exec` to run terminal commands, build projects, run tests, etc.
+- You receive the complete stdout and stderr output from commands, allowing you to analyze results and debug issues
+- When listing files/directories, prefer commands that filter out unnecessary files:
+  - Use `ls -la | grep -v node_modules` instead of plain `ls -la`
+  - Use `find . -name "*.rs" -not -path "*/target/*"` to avoid build artifacts
+  - Use `rg --files` or `rg --files | grep -E '\.(rs|js|py|go)$'` for code files only
+  - Skip `.git`, `target/`, `node_modules/`, `dist/`, `build/` directories when possible
+- Set appropriate working directories and timeouts
+- Always explain what commands do before running them
+- Use command output to make informed decisions about next steps
+
+**Search Strategy:**
+- Start broad to understand the codebase structure
+- Use regex patterns when appropriate for complex searches
+- Limit search results to avoid overwhelming output
+- Search for specific patterns like function definitions, imports, TODO comments
+
+# Best Practices
+
+**Code Analysis:**
+- Read key files like README, main entry points, and configuration files first
+- Understand project structure before making changes
+- Look for existing patterns and conventions in the codebase
+- Check for tests and build scripts to understand the development workflow
+
+**Safety:**
+- Always validate file paths and commands before execution
+- Be cautious with destructive operations
+- Explain the impact of changes before implementing them
+- Prefer small, focused changes over large refactors
+
+**Efficiency:**
+- Group related operations together
+- Read only the necessary parts of large files
+- Use appropriate tools for each task (search vs read vs execute)
+- Provide progress updates for longer operations
+
+Your goal is to be a helpful, efficient coding partner that understands codebases quickly and makes precise, well-reasoned changes."#.to_string()
+    }
+
     fn convert_history(&self, history: &[ChatMessage]) -> Vec<Value> {
         history
             .iter()
@@ -130,12 +191,16 @@ impl Agent for OpenRouterAgent {
     async fn submit(
         &self,
         message: String,
-        mut history: Vec<ChatMessage>,
+        history: Vec<ChatMessage>,
     ) -> Result<AgentResponse, AgentError> {
         let start = Instant::now();
 
-        // Seed with history and current user message
-        let mut messages = self.convert_history(&history);
+        // Seed with system prompt, history, and current user message
+        let mut messages = vec![json!({
+            "role": "system",
+            "content": self.get_system_prompt()
+        })];
+        messages.extend(self.convert_history(&history));
         messages.push(json!({ "role": "user", "content": message }));
 
         let tools = self.tool_specs_for_openai();
@@ -187,14 +252,21 @@ impl Agent for OpenRouterAgent {
                             continue;
                         }
 
-                        // Execute tool
-                        let _ = executor.execute_tool(call.id.clone(), tool_name.clone(), args.clone()).await;
+                        // Execute tool and get result
+                        let tool_result = match executor.execute_tool_with_result(call.id.clone(), tool_name.clone(), args.clone()).await {
+                            Ok(result) => result,
+                            Err(e) => json!({
+                                "error": e,
+                                "tool": format!("{:?}", tool_name),
+                                "args": args
+                            })
+                        };
 
-                        // For transcript, echo back a tool message with an empty content (UI holds actual result in events)
+                        // For transcript, include the actual tool result
                         messages.push(json!({
                             "role": "tool",
                             "tool_call_id": call.id,
-                            "content": "{\"ok\":true}"
+                            "content": serde_json::to_string_pretty(&tool_result).unwrap_or_else(|_| "{}".to_string())
                         }));
                     }
                     // Continue loop for next assistant turn
@@ -230,7 +302,9 @@ impl Agent for OpenRouterAgent {
 
 #[derive(Debug, Clone, Deserialize)]
 struct OpenRouterResponse {
+    #[allow(dead_code)]
     id: String,
+    #[allow(dead_code)]
     model: String,
     #[serde(default)]
     usage: Option<OpenRouterUsage>,
@@ -250,6 +324,7 @@ struct Choice {
 
 #[derive(Debug, Clone, Deserialize)]
 struct Message {
+    #[allow(dead_code)]
     role: String,
     #[serde(default)]
     content: Option<String>,

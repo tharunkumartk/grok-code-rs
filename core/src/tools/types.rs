@@ -84,4 +84,6 @@ pub struct ShellExecArgs {
 pub struct ShellExecResult {
     pub exit_code: i32,
     pub duration_ms: u64,
+    pub stdout: String,
+    pub stderr: String,
 }

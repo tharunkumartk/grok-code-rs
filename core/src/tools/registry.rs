@@ -189,9 +189,11 @@ impl ToolRegistry {
                 "type": "object",
                 "properties": {
                     "exit_code": { "type": "integer" },
-                    "duration_ms": { "type": "integer" }
+                    "duration_ms": { "type": "integer" },
+                    "stdout": { "type": "string" },
+                    "stderr": { "type": "string" }
                 },
-                "required": ["exit_code", "duration_ms"]
+                "required": ["exit_code", "duration_ms", "stdout", "stderr"]
             }),
             streaming: true,
             side_effects: true,

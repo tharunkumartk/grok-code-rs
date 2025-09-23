@@ -20,3 +20,6 @@ serde_json = "1.0"
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 dotenvy = "0.15"
+
+# Markdown parsing
+pulldown-cmark = "0.11"

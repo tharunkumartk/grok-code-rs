@@ -6,6 +6,7 @@ use tracing::info;
 mod app;
 mod components;
 mod events;
+pub mod markdown;
 
 use app::App;
 

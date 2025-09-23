@@ -458,48 +458,113 @@ impl App {
     fn render_chat(&mut self, f: &mut Frame, area: Rect) {
         // Prepare chat text
         let mut chat_lines = Vec::new();
+        let available_width = area.width.saturating_sub(4) as usize; // Account for borders and padding
+        
         for msg in self.session.messages() {
-            let style = match msg.role {
-                grok_core::MessageRole::User => Style::default().fg(Color::Cyan),
-                grok_core::MessageRole::Agent => Style::default().fg(Color::Green),
-                grok_core::MessageRole::System => Style::default().fg(Color::Yellow),
-                grok_core::MessageRole::Error => Style::default().fg(Color::Red),
-            };
-            
-            let prefix = match msg.role {
-                grok_core::MessageRole::User => "You: ",
-                grok_core::MessageRole::Agent => "",
-                grok_core::MessageRole::System => "",
-                grok_core::MessageRole::Error => "",
-            };
-            
-            // Split long messages into multiple lines, wrapping at word boundaries
-            let content = format!("{}{}", prefix, msg.content);
-            let available_width = area.width.saturating_sub(4) as usize; // Account for borders and padding
-            
-            if content.len() <= available_width {
-                chat_lines.push(Line::from(Span::styled(content, style)));
-            } else {
-                // Wrap text
-                let words: Vec<&str> = content.split_whitespace().collect();
-                let mut current_line = String::new();
-                
-                for word in words {
-                    if current_line.is_empty() {
-                        current_line = word.to_string();
-                    } else if current_line.len() + word.len() + 1 <= available_width {
-                        current_line.push(' ');
-                        current_line.push_str(word);
+            match msg.role {
+                grok_core::MessageRole::User => {
+                    // User messages - simple styling with prefix
+                    let content = format!("You: {}", msg.content);
+                    let style = Style::default().fg(Color::Cyan);
+                    
+                    if content.len() <= available_width {
+                        chat_lines.push(Line::from(Span::styled(content, style)));
                     } else {
-                        chat_lines.push(Line::from(Span::styled(current_line.clone(), style)));
-                        current_line = word.to_string();
+                        // Wrap text
+                        let words: Vec<&str> = content.split_whitespace().collect();
+                        let mut current_line = String::new();
+                        
+                        for word in words {
+                            if current_line.is_empty() {
+                                current_line = word.to_string();
+                            } else if current_line.len() + word.len() + 1 <= available_width {
+                                current_line.push(' ');
+                                current_line.push_str(word);
+                            } else {
+                                chat_lines.push(Line::from(Span::styled(current_line.clone(), style)));
+                                current_line = word.to_string();
+                            }
+                        }
+                        
+                        if !current_line.is_empty() {
+                            chat_lines.push(Line::from(Span::styled(current_line, style)));
+                        }
                     }
                 }
-                
-                if !current_line.is_empty() {
-                    chat_lines.push(Line::from(Span::styled(current_line, style)));
+                grok_core::MessageRole::Agent => {
+                    // Agent messages - parse markdown
+                    // Add a subtle indicator that this is an agent response
+                    chat_lines.push(Line::from(Span::styled(
+                        "Agent:",
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    )));
+                    
+                    let markdown_lines = crate::markdown::parse_markdown(&msg.content);
+                    let wrapped_lines = crate::markdown::wrap_markdown_lines(markdown_lines, available_width);
+                    chat_lines.extend(wrapped_lines);
+                }
+                grok_core::MessageRole::System => {
+                    // System messages - simple styling
+                    let content = &msg.content;
+                    let style = Style::default().fg(Color::Yellow);
+                    
+                    if content.len() <= available_width {
+                        chat_lines.push(Line::from(Span::styled(content.clone(), style)));
+                    } else {
+                        // Wrap text
+                        let words: Vec<&str> = content.split_whitespace().collect();
+                        let mut current_line = String::new();
+                        
+                        for word in words {
+                            if current_line.is_empty() {
+                                current_line = word.to_string();
+                            } else if current_line.len() + word.len() + 1 <= available_width {
+                                current_line.push(' ');
+                                current_line.push_str(word);
+                            } else {
+                                chat_lines.push(Line::from(Span::styled(current_line.clone(), style)));
+                                current_line = word.to_string();
+                            }
+                        }
+                        
+                        if !current_line.is_empty() {
+                            chat_lines.push(Line::from(Span::styled(current_line, style)));
+                        }
+                    }
+                }
+                grok_core::MessageRole::Error => {
+                    // Error messages - simple styling
+                    let content = &msg.content;
+                    let style = Style::default().fg(Color::Red);
+                    
+                    if content.len() <= available_width {
+                        chat_lines.push(Line::from(Span::styled(content.clone(), style)));
+                    } else {
+                        // Wrap text
+                        let words: Vec<&str> = content.split_whitespace().collect();
+                        let mut current_line = String::new();
+                        
+                        for word in words {
+                            if current_line.is_empty() {
+                                current_line = word.to_string();
+                            } else if current_line.len() + word.len() + 1 <= available_width {
+                                current_line.push(' ');
+                                current_line.push_str(word);
+                            } else {
+                                chat_lines.push(Line::from(Span::styled(current_line.clone(), style)));
+                                current_line = word.to_string();
+                            }
+                        }
+                        
+                        if !current_line.is_empty() {
+                            chat_lines.push(Line::from(Span::styled(current_line, style)));
+                        }
+                    }
                 }
             }
+            
+            // Add spacing between messages
+            chat_lines.push(Line::from(""));
         }
 
         // Calculate scroll limits
@@ -605,7 +670,7 @@ impl App {
         let status_text = if self.processing {
             format!("● Processing... | {} | 'q' to quit, Tab to switch, ↑↓ to scroll, End to jump to bottom", focus_indicator)
         } else {
-            format!("● Ready | {} | 'q' to quit, Tab to switch, ↑↓ to scroll, End to jump to bottom", focus_indicator)
+            format!("● Ready - Markdown supported! | {} | 'q' to quit, Tab to switch, ↑↓ to scroll, End to jump to bottom", focus_indicator)
         };
         
         let status = Paragraph::new(status_text)
