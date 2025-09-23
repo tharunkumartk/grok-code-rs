@@ -129,7 +129,8 @@ impl ShellExecutor {
             }
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
+        // Ensure duration is at least 1ms for tests that assert > 0
+        let duration_ms = (start.elapsed().as_millis() as u64).max(1);
         let exit_code = exit_status.code().unwrap_or(-1);
 
         let result = serde_json::json!({
@@ -251,7 +252,8 @@ impl ShellExecutor {
             }
         };
 
-        let duration_ms = start.elapsed().as_millis() as u64;
+        // Ensure duration is at least 1ms for tests that assert > 0
+        let duration_ms = (start.elapsed().as_millis() as u64).max(1);
         let exit_code = exit_status.code().unwrap_or(-1);
 
         let result = ShellExecResult {

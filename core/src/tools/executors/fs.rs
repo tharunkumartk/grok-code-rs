@@ -141,12 +141,7 @@ impl FsExecutor {
         let max_results = args.max_results.unwrap_or(100) as usize;
         let mut total_matches = 0;
 
-        // Determine search paths - use globs if provided, otherwise search current directory
-        let search_paths = if let Some(globs) = &args.globs {
-            globs.clone()
-        } else {
-            vec!["**/*".to_string()]
-        };
+        // Note: we used to determine search_paths here, but now handle globs directly in the loop below
 
         // Walk through files
         for entry in WalkDir::new(".").max_depth(10) {
@@ -164,10 +159,19 @@ impl FsExecutor {
             let path_str = path.to_string_lossy();
 
             // Check if path matches any glob pattern
-            if !args.globs.is_none() {
+            if let Some(globs) = &args.globs {
+                let file_name = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
                 let mut path_matches = false;
-                for glob in &search_paths {
-                    if glob == "**/*" || path_str.contains(glob.trim_start_matches("**/").trim_end_matches("/*")) {
+                for glob in globs {
+                    if glob == "**/*" {
+                        path_matches = true;
+                        break;
+                    }
+                    // If the glob contains a path separator, match against the full path; otherwise match file name
+                    let target = if glob.contains('/') { path_str.as_ref() } else { file_name };
+                    if simple_glob_match(target, glob) {
                         path_matches = true;
                         break;
                     }
@@ -467,8 +471,10 @@ impl FsExecutor {
                     (false, "".to_string(), None)
                 }
             } else {
-                if name_to_match == pattern_to_match {
-                    (true, "exact".to_string(), Some(1.0))
+                // Support simple glob patterns like "*.rs" when fuzzy matching is disabled
+                if simple_glob_match(&name_to_match, &pattern_to_match) {
+                    let is_exact = name_to_match == pattern_to_match;
+                    (true, if is_exact { "exact".to_string() } else { "partial".to_string() }, Some(if is_exact { 1.0 } else { 0.9 }))
                 } else if name_to_match.contains(&pattern_to_match) {
                     (true, "partial".to_string(), Some(0.9))
                 } else {
@@ -554,5 +560,22 @@ fn calculate_fuzzy_score(pattern: &str, text: &str) -> f64 {
         0.6 * length_ratio
     } else {
         0.0
+    }
+}
+
+// Very simple glob matcher supporting '*' wildcard. Anchored by default.
+// If pattern contains '/', it should be matched against the full path; otherwise against the file name.
+fn simple_glob_match(text: &str, pattern: &str) -> bool {
+    // Fast path: exact match
+    if pattern == text { return true; }
+
+    // Convert glob to regex: escape regex meta, then replace '\*' with '.*'
+    // Anchor the regex to match the whole string
+    let mut escaped = regex::escape(pattern);
+    escaped = escaped.replace("\\*", ".*");
+    let regex_pattern = format!("^{}$", escaped);
+    match regex::Regex::new(&regex_pattern) {
+        Ok(re) => re.is_match(text),
+        Err(_) => false,
     }
 }
