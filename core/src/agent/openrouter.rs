@@ -56,6 +56,7 @@ impl OpenRouterAgent {
             "fs.write" => Some(ToolName::FsWrite),
             "fs.apply_patch" => Some(ToolName::FsApplyPatch),
             "fs.find" => Some(ToolName::FsFind),
+            "fs.read_all_code" => Some(ToolName::FsReadAllCode),
             "shell.exec" => Some(ToolName::ShellExec),
             "code.symbols" => Some(ToolName::CodeSymbols),
             _ => None,
@@ -73,6 +74,7 @@ impl OpenRouterAgent {
                     ToolName::FsWrite => "fs.write",
                     ToolName::FsApplyPatch => "fs.apply_patch",
                     ToolName::FsFind => "fs.find",
+                    ToolName::FsReadAllCode => "fs.read_all_code",
                     ToolName::ShellExec => "shell.exec",
                     ToolName::CodeSymbols => "code.symbols",
                 };
@@ -130,6 +132,7 @@ Your default personality is concise, direct, and friendly. You communicate effic
 - Use `fs.write` to create or modify files (respects overwrite settings)
 - Use `fs.apply_patch` for applying unified diffs
 - Use `fs.find` to locate files and directories by name with fuzzy matching
+- Use `fs.read_all_code` to read all code files in a directory (supports filtering by extensions and patterns)
 
 **Code Analysis:**
 - Use `code.symbols` to extract symbols (functions, classes, structs, etc.) from source files

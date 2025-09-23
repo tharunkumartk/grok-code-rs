@@ -118,6 +118,33 @@ pub struct CodeSymbolsResult {
     pub language: String,
 }
 
+// Read all code files tool types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsReadAllCodeArgs {
+    pub base_path: Option<String>,
+    pub max_files: Option<u32>,
+    pub exclude_patterns: Option<Vec<String>>,
+    pub include_extensions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeFile {
+    pub path: String,
+    pub contents: String,
+    pub language: Option<String>,
+    pub size_bytes: u64,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsReadAllCodeResult {
+    pub files: Vec<CodeFile>,
+    pub total_files_found: u32,
+    pub total_files_read: u32,
+    pub total_size_bytes: u64,
+    pub search_time_ms: u64,
+}
+
 // Shell execution tool types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellExecArgs {

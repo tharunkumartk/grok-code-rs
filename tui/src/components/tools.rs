@@ -278,6 +278,19 @@ impl ToolsComponent {
                     all_lines.push(Line::from(""));
                 }
             }
+            grok_core::ToolName::FsReadAllCode => {
+                if let Ok(read_all_args) = serde_json::from_value::<grok_core::tools::FsReadAllCodeArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  Base path: {}", read_all_args.base_path.as_deref().unwrap_or("."))));
+                    if let Some(max_files) = read_all_args.max_files {
+                        all_lines.push(Line::from(format!("  Max files: {}", max_files)));
+                    }
+                    if let Some(ref extensions) = read_all_args.include_extensions {
+                        all_lines.push(Line::from(format!("  Extensions: {}", extensions.join(", "))));
+                    }
+                    all_lines.push(Line::from(""));
+                }
+            }
         }
     }
 

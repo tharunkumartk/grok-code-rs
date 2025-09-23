@@ -62,6 +62,7 @@ pub enum ToolName {
     FsWrite,
     FsApplyPatch,
     FsFind,
+    FsReadAllCode,
     ShellExec,
     CodeSymbols,
 }

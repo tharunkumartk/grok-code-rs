@@ -676,6 +676,179 @@ impl FsExecutor {
 
         Ok(truncated_result)
     }
+
+    pub async fn execute_read_all_code(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_read_all_code_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_read_all_code_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsReadAllCodeArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsReadAllCode arguments: {}", e))?;
+
+        let start = Instant::now();
+
+        // Default values
+        let base_path = args.base_path.as_deref().unwrap_or(".");
+        let max_files = args.max_files.unwrap_or(100);
+        
+        // Default file extensions for code files
+        let default_extensions = vec![
+            "rs".to_string(), "py".to_string(), "js".to_string(), "ts".to_string(),
+            "tsx".to_string(), "jsx".to_string(), "go".to_string(), "java".to_string(),
+            "c".to_string(), "cpp".to_string(), "h".to_string(), "hpp".to_string(),
+            "cs".to_string(), "php".to_string(), "rb".to_string(), "swift".to_string(),
+            "kt".to_string(), "scala".to_string(), "r".to_string(), "m".to_string(),
+            "sh".to_string(), "bash".to_string(), "zsh".to_string(), "fish".to_string(),
+            "sql".to_string(), "html".to_string(), "css".to_string(), "scss".to_string(),
+            "sass".to_string(), "less".to_string(), "vue".to_string(), "svelte".to_string(),
+            "elm".to_string(), "clj".to_string(), "cljs".to_string(), "hs".to_string(),
+            "ml".to_string(), "fs".to_string(), "pl".to_string(), "lua".to_string(),
+            "dart".to_string(), "julia".to_string(), "nim".to_string(), "zig".to_string(),
+        ];
+
+        let include_extensions = args.include_extensions.as_ref().unwrap_or(&default_extensions);
+        
+        // Default exclude patterns
+        let default_excludes = vec![
+            "node_modules".to_string(), ".git".to_string(), "target".to_string(),
+            "build".to_string(), "dist".to_string(), ".next".to_string(), ".nuxt".to_string(),
+            "__pycache__".to_string(), "*.pyc".to_string(), "*.pyo".to_string(),
+            ".venv".to_string(), "venv".to_string(), "env".to_string(),
+            ".gradle".to_string(), ".idea".to_string(), ".vscode".to_string(),
+            "*.class".to_string(), "*.jar".to_string(), "*.war".to_string(),
+            "vendor".to_string(), "composer.lock".to_string(), "package-lock.json".to_string(),
+            "yarn.lock".to_string(), "Cargo.lock".to_string(),
+        ];
+
+        let exclude_patterns = args.exclude_patterns.as_ref().unwrap_or(&default_excludes);
+
+        // Send progress event
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Scanning for code files in: {}", base_path),
+        }).ok();
+
+        let base_path = Path::new(base_path);
+        if !base_path.exists() {
+            return Err(format!("Base path does not exist: {}", base_path.display()));
+        }
+
+        let mut files = Vec::new();
+        let mut total_files_found = 0u32;
+        let mut total_size_bytes = 0u64;
+
+        // Walk the directory tree
+        for entry in WalkDir::new(base_path)
+            .follow_links(false)
+            .max_depth(20) // Reasonable depth limit
+        {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue, // Skip entries we can't read
+            };
+
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let file_path = entry.path();
+            let relative_path = file_path.strip_prefix(base_path)
+                .unwrap_or(file_path)
+                .to_string_lossy()
+                .to_string();
+
+            // Check exclude patterns
+            let should_exclude = exclude_patterns.iter().any(|pattern| {
+                if pattern.contains('*') {
+                    simple_glob_match(&relative_path, pattern)
+                } else {
+                    relative_path.contains(pattern)
+                }
+            });
+
+            if should_exclude {
+                continue;
+            }
+
+            // Check file extension
+            let extension = file_path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("");
+
+            if !include_extensions.contains(&extension.to_string()) {
+                continue;
+            }
+
+            total_files_found += 1;
+
+            // Check if we've hit the max files limit
+            if files.len() >= max_files as usize {
+                continue;
+            }
+
+            // Try to read the file
+            let (contents, size, truncated) = match tokio::fs::read(file_path).await {
+                Ok(bytes) => {
+                    let size = bytes.len() as u64;
+                    total_size_bytes += size;
+
+                    // Convert to string with error handling
+                    let contents = String::from_utf8_lossy(&bytes);
+                    
+                    // Truncate very large files to prevent memory issues
+                    const MAX_FILE_SIZE: usize = 512 * 1024; // 512KB per file
+                    if contents.len() > MAX_FILE_SIZE {
+                        (contents[..MAX_FILE_SIZE].to_string(), size, true)
+                    } else {
+                        (contents.to_string(), size, false)
+                    }
+                }
+                Err(_) => continue, // Skip files we can't read
+            };
+
+            // Detect language from extension
+            let language = detect_language(extension);
+
+            // Send progress update every 10 files
+            if files.len() % 10 == 0 {
+                self.event_sender.send(AppEvent::ToolProgress {
+                    id: id.clone(),
+                    message: format!("Read {} files...", files.len()),
+                }).ok();
+            }
+
+            files.push(CodeFile {
+                path: relative_path,
+                contents,
+                language,
+                size_bytes: size,
+                truncated,
+            });
+        }
+
+        let search_time_ms = start.elapsed().as_millis() as u64;
+
+        let total_files_read = files.len() as u32;
+        let result = FsReadAllCodeResult {
+            files,
+            total_files_found,
+            total_files_read,
+            total_size_bytes,
+            search_time_ms,
+        };
+
+        let result_json = serde_json::to_value(result)
+            .map_err(|e| format!("Failed to serialize result: {}", e))?;
+
+        // Send the result as a tool result event
+        self.event_sender.send(AppEvent::ToolResult {
+            id,
+            payload: result_json.clone(),
+        }).ok();
+
+        Ok(self.truncate_result(result_json))
+    }
 }
 
 // Helper functions for fs.find
@@ -736,5 +909,51 @@ fn simple_glob_match(text: &str, pattern: &str) -> bool {
     match regex::Regex::new(&regex_pattern) {
         Ok(re) => re.is_match(text),
         Err(_) => false,
+    }
+}
+
+// Helper functions for fs.find (already defined above, keeping only detect_language)
+
+fn detect_language(extension: &str) -> Option<String> {
+    match extension {
+        "rs" => Some("rust".to_string()),
+        "py" => Some("python".to_string()),
+        "js" => Some("javascript".to_string()),
+        "ts" => Some("typescript".to_string()),
+        "tsx" => Some("typescript".to_string()),
+        "jsx" => Some("javascript".to_string()),
+        "go" => Some("go".to_string()),
+        "java" => Some("java".to_string()),
+        "c" => Some("c".to_string()),
+        "cpp" | "cxx" | "cc" => Some("cpp".to_string()),
+        "h" | "hpp" | "hxx" => Some("c".to_string()),
+        "cs" => Some("csharp".to_string()),
+        "php" => Some("php".to_string()),
+        "rb" => Some("ruby".to_string()),
+        "swift" => Some("swift".to_string()),
+        "kt" => Some("kotlin".to_string()),
+        "scala" => Some("scala".to_string()),
+        "r" => Some("r".to_string()),
+        "m" => Some("objective-c".to_string()),
+        "sh" | "bash" | "zsh" | "fish" => Some("bash".to_string()),
+        "sql" => Some("sql".to_string()),
+        "html" => Some("html".to_string()),
+        "css" => Some("css".to_string()),
+        "scss" | "sass" => Some("scss".to_string()),
+        "less" => Some("less".to_string()),
+        "vue" => Some("vue".to_string()),
+        "svelte" => Some("svelte".to_string()),
+        "elm" => Some("elm".to_string()),
+        "clj" | "cljs" => Some("clojure".to_string()),
+        "hs" => Some("haskell".to_string()),
+        "ml" => Some("ocaml".to_string()),
+        "fs" => Some("fsharp".to_string()),
+        "pl" => Some("perl".to_string()),
+        "lua" => Some("lua".to_string()),
+        "dart" => Some("dart".to_string()),
+        "julia" => Some("julia".to_string()),
+        "nim" => Some("nim".to_string()),
+        "zig" => Some("zig".to_string()),
+        _ => None,
     }
 }

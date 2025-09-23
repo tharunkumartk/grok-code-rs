@@ -79,6 +79,7 @@ impl EventHandler {
                     grok_core::ToolName::FsWrite => "file writer",
                     grok_core::ToolName::FsApplyPatch => "patch applicator",
                     grok_core::ToolName::FsFind => "file finder",
+                    grok_core::ToolName::FsReadAllCode => "code reader",
                     grok_core::ToolName::ShellExec => "shell command",
                     grok_core::ToolName::CodeSymbols => "code analyzer",
                 };
