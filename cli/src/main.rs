@@ -19,8 +19,12 @@ async fn main() -> Result<()> {
     let event_bus = EventBus::new();
     let event_sender = event_bus.sender();
     
-    // Create mock agent
-    let agent = AgentFactory::create_mock();
+    // Load environment variables
+    let _ = dotenvy::dotenv();
+
+    // Create OpenRouter agent (requires OPENROUTER_API_KEY)
+    let agent = AgentFactory::create_openrouter_from_env(event_sender.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to create agent: {}. Make sure OPENROUTER_API_KEY is set.", e))?;
     
     // Create session
     let session = Session::new(agent, event_sender.clone());

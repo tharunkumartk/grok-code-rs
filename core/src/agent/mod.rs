@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
-pub mod mock;
 pub mod openrouter;
 
 /// Main agent trait that all agent implementations must satisfy
@@ -80,16 +79,6 @@ pub enum AgentError {
 pub struct AgentFactory;
 
 impl AgentFactory {
-    /// Create a mock agent for testing/development
-    pub fn create_mock() -> std::sync::Arc<dyn Agent> {
-        std::sync::Arc::new(mock::MockAgent::new())
-    }
-
-    /// Create a mock agent with event sender for tool calling
-    pub fn create_mock_with_events(event_sender: crate::events::EventSender) -> std::sync::Arc<dyn Agent> {
-        std::sync::Arc::new(mock::MockAgent::new().with_event_sender(event_sender))
-    }
-    
     /// Create an OpenRouter agent from environment variables.
     /// Required: OPENROUTER_API_KEY
     /// Optional: OPENROUTER_MODEL (default: "x-ai/grok-4-fast:free"), OPENROUTER_REFERER, OPENROUTER_TITLE

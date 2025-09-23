@@ -26,11 +26,14 @@ async fn main() -> Result<()> {
     // Optional: load .env (ignore errors if missing)
     let _ = dotenvy::dotenv();
 
-    // Choose agent: OpenRouter if API key present, else mock
-    let agent = match std::env::var("OPENROUTER_API_KEY") {
-        Ok(_) => AgentFactory::create_openrouter_from_env(event_sender.clone())
-            .unwrap_or_else(|_| AgentFactory::create_mock_with_events(event_sender.clone())),
-        Err(_) => AgentFactory::create_mock_with_events(event_sender.clone()),
+    // Create OpenRouter agent (requires OPENROUTER_API_KEY)
+    let agent = match AgentFactory::create_openrouter_from_env(event_sender.clone()) {
+        Ok(agent) => agent,
+        Err(e) => {
+            eprintln!("Error: {}. Make sure OPENROUTER_API_KEY environment variable is set.", e);
+            eprintln!("Get an API key from: https://openrouter.ai/keys");
+            std::process::exit(1);
+        }
     };
     
     // Create session
