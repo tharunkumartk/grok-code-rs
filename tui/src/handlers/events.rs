@@ -37,6 +37,12 @@ impl EventHandler {
             }
             AppEvent::Clear => {
                 state.session.clear();
+                // Reset UI state to fresh start
+                state.chat_scroll = 0;
+                state.tools_scroll = 0;
+                state.auto_scroll_chat = true;
+                state.auto_scroll_tools = true;
+                state.current_token_usage = None;
             }
             AppEvent::ShowAgentInfo => {
                 let info = state.session.agent_info();

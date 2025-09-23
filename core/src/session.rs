@@ -144,10 +144,11 @@ impl Session {
         self.messages.push(message);
     }
     
-    /// Clear all messages
+    /// Clear all messages and reset session state
     pub fn clear(&mut self) {
         self.messages.clear();
-        self.add_system_message("Conversation cleared.".to_string());
+        self.active_tools.clear();
+        self.add_system_message("Conversation and context cleared.".to_string());
     }
     
     /// Get agent information

@@ -84,7 +84,7 @@ impl AppState {
             },
             Command {
                 name: "/clear".to_string(),
-                description: "Clear conversation history".to_string(),
+                description: "Clear conversation history and reset context".to_string(),
             },
             Command {
                 name: "/info".to_string(),
