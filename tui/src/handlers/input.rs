@@ -26,9 +26,6 @@ impl InputHandler {
         use crossterm::event::KeyModifiers;
 
         match key_code {
-            KeyCode::Char('q') if !state.processing => {
-                state.should_quit = true;
-            }
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 state.should_quit = true;
             }
@@ -305,7 +302,7 @@ impl InputHandler {
     }
 
     /// Submit the current input to the agent
-    async fn submit_input(state: &mut AppState) {
+    pub async fn submit_input(state: &mut AppState) {
         if state.input.trim().is_empty() || state.processing {
             return;
         }
@@ -320,6 +317,7 @@ impl InputHandler {
         match input.as_str() {
             "/quit" | "/q" => {
                 state.should_quit = true;
+                state.processing = false;
                 return;
             }
             "/clear" => {
@@ -354,18 +352,23 @@ impl InputHandler {
                 state.processing = false;
                 return;
             }
-            "/thinking" => {
-                let current_status = std::env::var("GROK_ENABLE_INTERLEAVED_THINKING")
-                    .map(|v| v.to_lowercase() == "true" || v == "1")
-                    .unwrap_or(false);
-
-                let new_status = !current_status;
-                std::env::set_var("GROK_ENABLE_INTERLEAVED_THINKING", new_status.to_string());
-
-                state.session.add_system_message(format!(
-                    "Interleaved thinking is now {}. This will take effect for the next conversation.\n• When enabled, the agent will share its reasoning process between tool calls\n• Use '/thinking' again to toggle",
-                    if new_status { "enabled" } else { "disabled" }
-                ));
+            "/save" => {
+                match state.session.save() {
+                    Ok(_) => state.session.add_system_message("Chat history saved to ~/.grok_code/chat_history.json.".to_string()),
+                    Err(e) => state.session.add_error_message(format!("Failed to save history: {}", e)),
+                }
+                state.processing = false;
+                return;
+            }
+            "/load" => {
+                match state.session.load_into(None) {
+                    Ok(_) => {
+                        state.session.add_system_message("Chat history loaded from default location.".to_string());
+                        state.chat_scroll = 0;
+                        state.auto_scroll_chat = true;
+                    }
+                    Err(e) => state.session.add_error_message(format!("Failed to load history: {}", e)),
+                }
                 state.processing = false;
                 return;
             }

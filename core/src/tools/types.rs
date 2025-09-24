@@ -47,8 +47,14 @@ pub struct FsSearchResult {
 pub struct FsWriteArgs {
     pub path: String,
     pub contents: String,
+    #[serde(default = "default_create_if_missing")]
     pub create_if_missing: bool,
+    #[serde(default)]
     pub overwrite: bool,
+}
+
+fn default_create_if_missing() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,4 +168,23 @@ pub struct ShellExecResult {
     pub duration_ms: u64,
     pub stdout: String,
     pub stderr: String,
+}
+
+// Large context fetch tool types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LargeContextFetchArgs {
+    pub user_query: String,
+    pub base_path: Option<String>,
+    pub max_files: Option<u32>,
+    pub include_extensions: Option<Vec<String>>,
+    pub exclude_patterns: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LargeContextFetchResult {
+    pub relevant_files: Vec<CodeFile>,
+    pub llm_reasoning: String,
+    pub total_files_analyzed: u32,
+    pub total_files_returned: u32,
+    pub execution_time_ms: u64,
 }

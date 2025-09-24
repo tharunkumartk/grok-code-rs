@@ -291,6 +291,20 @@ impl ToolsComponent {
                     all_lines.push(Line::from(""));
                 }
             }
+            grok_core::ToolName::LargeContextFetch => {
+                if let Ok(context_args) = serde_json::from_value::<grok_core::tools::LargeContextFetchArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  Query: {}", context_args.user_query)));
+                    all_lines.push(Line::from(format!("  Base path: {}", context_args.base_path.as_deref().unwrap_or("."))));
+                    if let Some(max_files) = context_args.max_files {
+                        all_lines.push(Line::from(format!("  Max files: {}", max_files)));
+                    }
+                    if let Some(ref extensions) = context_args.include_extensions {
+                        all_lines.push(Line::from(format!("  Extensions: {}", extensions.join(", "))));
+                    }
+                    all_lines.push(Line::from(""));
+                }
+            }
         }
     }
 
@@ -408,6 +422,41 @@ impl ToolsComponent {
                     } else {
                         serde_json::to_string_pretty(result).unwrap_or_else(|_| "Invalid JSON".to_string())
                     }
+                } else {
+                    serde_json::to_string_pretty(result).unwrap_or_else(|_| "Invalid JSON".to_string())
+                }
+            }
+            grok_core::ToolName::LargeContextFetch => {
+                if let Ok(context_result) = serde_json::from_value::<serde_json::Value>(result.clone()) {
+                    let mut content = String::new();
+                    
+                    // Show LLM reasoning
+                    if let Some(reasoning) = context_result.get("llm_reasoning").and_then(|r| r.as_str()) {
+                        content.push_str("🤖 LLM Analysis:\n");
+                        content.push_str(reasoning);
+                        content.push_str("\n\n");
+                    }
+                    
+                    // Show summary stats
+                    if let (Some(analyzed), Some(returned)) = (
+                        context_result.get("total_files_analyzed").and_then(|a| a.as_u64()),
+                        context_result.get("total_files_returned").and_then(|r| r.as_u64())
+                    ) {
+                        content.push_str(&format!("📊 Summary: {} files analyzed, {} relevant files found\n\n", analyzed, returned));
+                    }
+                    
+                    // Show relevant files
+                    if let Some(files) = context_result.get("relevant_files").and_then(|f| f.as_array()) {
+                        content.push_str("📂 Relevant Files:\n");
+                        for (i, file) in files.iter().enumerate() {
+                            if let Some(path) = file.get("path").and_then(|p| p.as_str()) {
+                                let size = file.get("size_bytes").and_then(|s| s.as_u64()).unwrap_or(0);
+                                content.push_str(&format!("{}. {} ({} bytes)\n", i + 1, path, size));
+                            }
+                        }
+                    }
+                    
+                    content
                 } else {
                     serde_json::to_string_pretty(result).unwrap_or_else(|_| "Invalid JSON".to_string())
                 }

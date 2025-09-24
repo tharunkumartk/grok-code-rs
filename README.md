@@ -4,7 +4,6 @@ A terminal-based coding assistant powered by AI. Grok Code provides an interacti
 ## Features
 - **Interactive TUI**: Chat with the AI in a full-screen terminal interface with markdown support, scrolling, and multi-panel layout (chat, tools, input).
 - **AI Agent Integration**: Uses OpenRouter API (default model: xAI Grok) for intelligent responses with tool calling capabilities.
-- **Interleaved Thinking**: When enabled, the agent shares its reasoning process between tool calls, making decision-making transparent and helping users understand the agent's thought process.
 - **Tool Support**:
   - File reading (`fs.read`) with optional byte ranges and encoding.
   - Codebase searching (`fs.search`) with regex, glob patterns, and case sensitivity.
@@ -55,15 +54,12 @@ A terminal-based coding assistant powered by AI. Grok Code provides an interacti
   - `/clear`: Clear conversation history.
   - `/info` or `/q`: Show agent info or quit.
   - `/context`: Display current token usage statistics.
-  - `/thinking`: Toggle interleaved thinking mode (shows agent's reasoning process).
 - **Tools in Action**: The agent automatically uses tools (e.g., "read src/main.rs" to view a file). Tool output appears in the tools panel with real-time streaming (stdout/stderr).
 - **Markdown Support**: Agent responses render with bold, italics, code blocks, lists, and quotes.
 
 Example interaction:
 - User: "What's in the main file?"
 - Agent: Uses `fs.read` tool, displays file contents, and explains.
-
-**Interleaved Thinking**: Enable transparent AI reasoning with `/thinking` command or `GROK_ENABLE_INTERLEAVED_THINKING=true`. See [INTERLEAVED_THINKING.md](INTERLEAVED_THINKING.md) for details.
 
 ## Project Structure
 ```
@@ -88,7 +84,7 @@ Example interaction:
 ## Architecture Overview
 1. **Event Bus**: Central async channel (`tokio::sync::mpsc`) for events like `AppEvent::AgentResponse`, `ToolBegin`, etc.
 2. **Session**: Manages chat history (`ChatMessage`), active tools (`ActiveTool`), and interacts with the agent.
-3. **Agent**: `OpenRouterAgent` handles LLM calls with tool calling (OpenAI-compatible format). Supports up to 8 tool turns.
+3. **Agent**: `MultiModelAgent` handles LLM calls with tool calling (OpenAI-compatible format). Supports up to 8 tool turns with automatic fallback between model providers.
 4. **Tools**: `ToolExecutor` implements real operations (e.g., `tokio::fs` for files, `tokio::process` for shell). Results are JSON-structured.
 5. **TUI**: Ratatui-based with panels for chat (markdown-rendered), tools (progress/output), and input. Handles keyboard/mouse events.
 6. **Safety**: Validates tool args, truncates large outputs (default 1MB), timeouts (e.g., 30s for shell).
@@ -98,7 +94,6 @@ The app runs in a `tokio::main` loop, processing terminal events and app events 
 ## Customization
 - **Model**: Set `OPENROUTER_MODEL` in `.env` (default: `x-ai/grok-4-fast:free`).
 - **Max Tool Output**: `GROK_TOOL_MAX_OUTPUT_SIZE` env var (bytes).
-- **Interleaved Thinking**: Set `GROK_ENABLE_INTERLEAVED_THINKING=true` to enable by default, or use `/thinking` command to toggle.
 - **Extend Tools**: Add new `ToolName` variants and handlers in `core/src/tools/executor.rs`.
 - **New Agent**: Implement `Agent` trait in `core/src/agent/` and use `AgentFactory`.
 

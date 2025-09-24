@@ -677,6 +677,8 @@ impl FsExecutor {
         Ok(truncated_result)
     }
 
+    // TEMPORARILY COMMENTED OUT
+    /*
     pub async fn execute_read_all_code(&self, id: String, args: Value) -> Result<(), String> {
         let _result = self.execute_read_all_code_with_result(id, args).await?;
         Ok(())
@@ -849,6 +851,7 @@ impl FsExecutor {
 
         Ok(self.truncate_result(result_json))
     }
+    */
 }
 
 // Helper functions for fs.find

@@ -23,3 +23,4 @@ dotenvy = "0.15"
 
 # Markdown parsing
 pulldown-cmark = "0.11"
+serde = { version = "1.0", features = ["derive"] }

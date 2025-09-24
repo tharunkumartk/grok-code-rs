@@ -34,9 +34,6 @@ impl ChatComponent {
                 grok_core::MessageRole::Error => {
                     Self::render_error_message(&mut chat_lines, &msg.content, available_width, should_wrap);
                 }
-                grok_core::MessageRole::Thinking => {
-                    Self::render_thinking_message(&mut chat_lines, &msg.content, available_width, should_wrap);
-                }
             }
             
             // Add spacing between messages
@@ -137,17 +134,6 @@ impl ChatComponent {
     fn render_error_message(chat_lines: &mut Vec<Line>, content: &str, available_width: usize, should_wrap: bool) {
         // Error messages - simple styling
         let style = Style::default().fg(Color::Red);
-        Self::add_wrapped_text(chat_lines, content, style, available_width, should_wrap);
-    }
-
-    fn render_thinking_message(chat_lines: &mut Vec<Line>, content: &str, available_width: usize, should_wrap: bool) {
-        // Thinking messages - distinctive styling with emoji and italic
-        chat_lines.push(Line::from(Span::styled(
-            "💭 Thinking:",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        )));
-        
-        let style = Style::default().fg(Color::Cyan).add_modifier(Modifier::ITALIC);
         Self::add_wrapped_text(chat_lines, content, style, available_width, should_wrap);
     }
 

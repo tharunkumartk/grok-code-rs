@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
-pub mod openrouter;
+pub mod agent_logic;
 
 /// Main agent trait that all agent implementations must satisfy
 #[async_trait]
@@ -79,19 +79,18 @@ pub enum AgentError {
 pub struct AgentFactory;
 
 impl AgentFactory {
-    /// Create an OpenRouter agent from environment variables.
+    /// Create a multi-model agent with OpenRouter as primary and optional Vercel AI Gateway fallback.
     /// Required: OPENROUTER_API_KEY
-    /// Optional: OPENROUTER_MODEL (default: "x-ai/grok-4-fast:free"), OPENROUTER_REFERER, OPENROUTER_TITLE
+    /// Optional: OPENROUTER_MODEL (default: "x-ai/grok-4-fast:free")
+    /// Optional fallback: VERCEL_AI_GATEWAY_API_KEY, VERCEL_AI_GATEWAY_MODEL
     pub fn create_openrouter_from_env(
         event_sender: crate::events::EventSender,
     ) -> Result<std::sync::Arc<dyn Agent>, AgentError> {
         let api_key = std::env::var("OPENROUTER_API_KEY")
             .map_err(|_| AgentError::Configuration("Missing OPENROUTER_API_KEY".to_string()))?;
         let model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "x-ai/grok-4-fast:free".to_string());
-        let referer = std::env::var("OPENROUTER_REFERER").ok();
-        let title = std::env::var("OPENROUTER_TITLE").ok();
 
-        let agent = openrouter::OpenRouterAgent::new(api_key, model, referer, title, event_sender)
+        let agent = agent_logic::MultiModelAgent::new(api_key, model, event_sender)
             .map_err(|e| AgentError::Configuration(format!("{}", e)))?;
         Ok(std::sync::Arc::new(agent))
     }

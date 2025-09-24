@@ -24,8 +24,11 @@ impl App {
         session: Session,
         event_receiver: mpsc::UnboundedReceiver<AppEvent>,
     ) -> Self {
+        let chats_dir = Session::default_history_path().parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("chats");
         Self {
-            state: AppState::new(session, event_receiver),
+            state: AppState::new(session, event_receiver, chats_dir),
         }
     }
     
@@ -83,6 +86,11 @@ impl App {
             if self.state.should_quit {
                 break;
             }
+        }
+
+        // Auto-save on exit if there's history
+        if !self.state.session.messages().is_empty() {
+            let _ = self.state.session.save();
         }
 
         Ok(())

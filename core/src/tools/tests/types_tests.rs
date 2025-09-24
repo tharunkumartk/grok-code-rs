@@ -1,5 +1,5 @@
 use crate::tools::types::*;
-use serde_json::{from_value, to_value};
+use serde_json::{from_value, to_value, json};
 
 #[test]
 fn test_fs_read_args_serialization() {
@@ -503,4 +503,31 @@ fn test_large_data_structures() {
     assert_eq!(deserialized.symbols.len(), 100);
     assert_eq!(deserialized.symbols[50].name, "function_50");
     assert_eq!(deserialized.symbols[99].line_start, 990);
+}
+
+#[test]
+fn test_fs_write_args_defaults() {
+    // Test with missing boolean fields - should use defaults
+    let args_missing_bools = json!({
+        "path": "/test/file.txt",
+        "contents": "test content"
+    });
+    
+    let args: FsWriteArgs = from_value(args_missing_bools).unwrap();
+    assert_eq!(args.path, "/test/file.txt");
+    assert_eq!(args.contents, "test content");
+    assert_eq!(args.create_if_missing, true, "create_if_missing should default to true");
+    assert_eq!(args.overwrite, false, "overwrite should default to false");
+    
+    // Test with explicit boolean fields
+    let args_with_bools = json!({
+        "path": "/test/file.txt",
+        "contents": "test content",
+        "create_if_missing": false,
+        "overwrite": true
+    });
+    
+    let args: FsWriteArgs = from_value(args_with_bools).unwrap();
+    assert_eq!(args.create_if_missing, false);
+    assert_eq!(args.overwrite, true);
 }

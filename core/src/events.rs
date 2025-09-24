@@ -21,9 +21,6 @@ pub enum AppEvent {
     /// Agent encountered an error
     AgentError(AgentError),
     
-    /// Agent thinking step (for interleaved thinking)
-    AgentThinking(String),
-    
     /// Application should quit
     Quit,
     
@@ -65,6 +62,7 @@ pub enum ToolName {
     FsReadAllCode,
     ShellExec,
     CodeSymbols,
+    LargeContextFetch,
 }
 
 /// Token usage information
@@ -147,11 +145,6 @@ impl EventSender {
     /// Send agent error
     pub fn send_agent_error(&self, error: AgentError) -> Result<(), EventSendError> {
         self.send(AppEvent::AgentError(error))
-    }
-    
-    /// Send agent thinking step
-    pub fn send_agent_thinking(&self, thinking: String) -> Result<(), EventSendError> {
-        self.send(AppEvent::AgentThinking(thinking))
     }
     
     /// Send quit signal

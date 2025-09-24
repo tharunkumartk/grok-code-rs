@@ -26,12 +26,6 @@ impl EventHandler {
                 state.processing = false;
                 error!("Agent error: {}", error);
             }
-            AppEvent::AgentThinking(thinking) => {
-                // Add thinking message to the session and enable auto-scroll
-                state.session.handle_agent_thinking(thinking);
-                state.auto_scroll_chat = true;
-                debug!("Received agent thinking step");
-            }
             AppEvent::Quit => {
                 state.should_quit = true;
             }
@@ -82,6 +76,7 @@ impl EventHandler {
                     grok_core::ToolName::FsReadAllCode => "code reader",
                     grok_core::ToolName::ShellExec => "shell command",
                     grok_core::ToolName::CodeSymbols => "code analyzer",
+                    grok_core::ToolName::LargeContextFetch => "context analyzer",
                 };
                 state.session.add_system_message(format!("Agent ran {} tool", tool_display_name));
                 

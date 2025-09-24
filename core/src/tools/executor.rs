@@ -1,6 +1,6 @@
 use crate::events::{AppEvent, EventSender, ToolName};
 use crate::tools::types::*;
-use crate::tools::executors::{FsExecutor, ShellExecutor, CodeExecutor};
+use crate::tools::executors::{FsExecutor, ShellExecutor, CodeExecutor, LlmExecutor};
 use serde_json::Value;
 use std::time::Instant;
 
@@ -11,6 +11,7 @@ pub struct ToolExecutor {
     fs_executor: FsExecutor,
     shell_executor: ShellExecutor,
     code_executor: CodeExecutor,
+    llm_executor: LlmExecutor,
 }
 
 impl ToolExecutor {
@@ -23,6 +24,7 @@ impl ToolExecutor {
         let fs_executor = FsExecutor::new(event_sender.clone(), max_output_size);
         let shell_executor = ShellExecutor::new(event_sender.clone(), max_output_size);
         let code_executor = CodeExecutor::new(event_sender.clone(), max_output_size);
+        let llm_executor = LlmExecutor::new(event_sender.clone(), max_output_size);
 
         Self {
             event_sender,
@@ -30,6 +32,7 @@ impl ToolExecutor {
             fs_executor,
             shell_executor,
             code_executor,
+            llm_executor,
         }
     }
 
@@ -38,6 +41,7 @@ impl ToolExecutor {
         self.fs_executor = FsExecutor::new(self.event_sender.clone(), max_output_size);
         self.shell_executor = ShellExecutor::new(self.event_sender.clone(), max_output_size);
         self.code_executor = CodeExecutor::new(self.event_sender.clone(), max_output_size);
+        self.llm_executor = LlmExecutor::new(self.event_sender.clone(), max_output_size);
         self
     }
 
@@ -63,9 +67,12 @@ impl ToolExecutor {
             ToolName::FsWrite => self.fs_executor.execute_write_with_result(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch_with_result(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find_with_result(id.clone(), args).await,
-            ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code_with_result(id.clone(), args).await,
+            // TEMPORARILY COMMENTED OUT
+            // ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code_with_result(id.clone(), args).await,
+            ToolName::FsReadAllCode => Err("FsReadAllCode is temporarily disabled".to_string()),
             ToolName::ShellExec => self.shell_executor.execute_with_result(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols_with_result(id.clone(), args).await,
+            ToolName::LargeContextFetch => self.llm_executor.execute_large_context_fetch_with_result(id.clone(), args).await,
         };
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -101,9 +108,12 @@ impl ToolExecutor {
             ToolName::FsWrite => self.fs_executor.execute_write(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find(id.clone(), args).await,
-            ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code(id.clone(), args).await,
+            // TEMPORARILY COMMENTED OUT
+            // ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code(id.clone(), args).await,
+            ToolName::FsReadAllCode => Err("FsReadAllCode is temporarily disabled".to_string()),
             ToolName::ShellExec => self.shell_executor.execute(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols(id.clone(), args).await,
+            ToolName::LargeContextFetch => self.llm_executor.execute_large_context_fetch(id.clone(), args).await,
         };
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -169,6 +179,14 @@ impl ToolExecutor {
                     format!("Analyzing symbols in: {}", args.path)
                 } else {
                     "Analyzing code symbols".to_string()
+                }
+            }
+            ToolName::LargeContextFetch => {
+                if let Ok(args) = serde_json::from_value::<LargeContextFetchArgs>(args.clone()) {
+                    let base = args.base_path.as_deref().unwrap_or(".");
+                    format!("Fetching relevant code context for query: {} (from: {})", args.user_query, base)
+                } else {
+                    "Fetching relevant code context".to_string()
                 }
             }
         }

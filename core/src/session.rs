@@ -2,13 +2,19 @@ use crate::agent::Agent;
 use crate::events::{EventSender, ToolName};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+// Unused imports removed
+use std::path::PathBuf;
+use serde_json;
 
 /// Represents a chat session with conversation history
 pub struct Session {
     messages: Vec<ChatMessage>,
     agent: std::sync::Arc<dyn Agent>,
     event_sender: EventSender,
-    active_tools: std::collections::HashMap<String, ActiveTool>,
+    active_tools: HashMap<String, ActiveTool>,
 }
 
 /// Information about an active tool execution
@@ -38,7 +44,7 @@ pub enum ToolStatus {
 pub struct ChatMessage {
     pub role: MessageRole,
     pub content: String,
-    pub timestamp: SystemTime,
+    pub timestamp_secs: u64,  // Unix timestamp in seconds for serialization
 }
 
 /// Who sent the message
@@ -48,8 +54,6 @@ pub enum MessageRole {
     Agent,
     System,
     Error,
-    /// Agent's internal thinking process (visible to user when enabled)
-    Thinking,
 }
 
 impl Session {
@@ -59,7 +63,7 @@ impl Session {
             messages: Vec::new(),
             agent,
             event_sender,
-            active_tools: std::collections::HashMap::new(),
+            active_tools: HashMap::new(),
         };
         
         // Add welcome message
@@ -67,7 +71,42 @@ impl Session {
         
         session
     }
+
+    /// Default history path (~/.grok_code/chat_history.json)
+    pub fn default_history_path() -> PathBuf {
+        let home = env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let mut path: PathBuf = home.into();
+        path.push(".grok_code");
+        let _ = fs::create_dir_all(&path);
+        path.push("chat_history.json");
+        path
+    }
     
+    /// Save messages to JSON file (auto-save or manual)
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::default_history_path();
+        let json = serde_json::to_string(&self.messages).map_err(|e| e.to_string())?;
+        fs::write(&path, json.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    
+    /// Load messages from JSON and replace current history
+    pub fn load_into(&mut self, path: Option<PathBuf>) -> Result<(), String> {
+        let path = path.unwrap_or_else(|| Self::default_history_path());
+        if !path.exists() {
+            return Err("No history file found".to_string());
+        }
+        let json = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let messages: Vec<ChatMessage> = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        
+        self.messages = messages;
+        if self.messages.is_empty() {
+            self.add_system_message("Welcome to Grok Code! Type your message and press Enter.".to_string());
+        }
+        self.active_tools.clear();  // Clear tools on load
+        Ok(())
+    }
+
     /// Get all messages in the session
     pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
@@ -96,50 +135,54 @@ impl Session {
     
     /// Add a user message to the conversation
     pub fn add_user_message(&mut self, content: String) {
+        let timestamp_secs = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u64, |d| d.as_secs());
         let message = ChatMessage {
             role: MessageRole::User,
             content,
-            timestamp: SystemTime::now(),
+            timestamp_secs,
         };
         self.messages.push(message);
     }
     
-    /// Add an agent message to the conversation
+    /// Add an agent message to the conversation (auto-save after)
     pub fn add_agent_message(&mut self, content: String) {
+        let timestamp_secs = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u64, |d| d.as_secs());
         let message = ChatMessage {
             role: MessageRole::Agent,
             content,
-            timestamp: SystemTime::now(),
+            timestamp_secs,
         };
         self.messages.push(message);
+        // Auto-save after agent response
+        let _ = self.save();
     }
     
     /// Add a system message to the conversation
     pub fn add_system_message(&mut self, content: String) {
+        let timestamp_secs = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u64, |d| d.as_secs());
         let message = ChatMessage {
             role: MessageRole::System,
             content,
-            timestamp: SystemTime::now(),
+            timestamp_secs,
         };
         self.messages.push(message);
     }
     
     /// Add an error message to the conversation
     pub fn add_error_message(&mut self, content: String) {
+        let timestamp_secs = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u64, |d| d.as_secs());
         let message = ChatMessage {
             role: MessageRole::Error,
             content,
-            timestamp: SystemTime::now(),
-        };
-        self.messages.push(message);
-    }
-    
-    /// Add a thinking message to the conversation
-    pub fn add_thinking_message(&mut self, content: String) {
-        let message = ChatMessage {
-            role: MessageRole::Thinking,
-            content,
-            timestamp: SystemTime::now(),
+            timestamp_secs,
         };
         self.messages.push(message);
     }
@@ -157,7 +200,7 @@ impl Session {
     }
 
     /// Get active tools
-    pub fn active_tools(&self) -> &std::collections::HashMap<String, ActiveTool> {
+    pub fn active_tools(&self) -> &HashMap<String, ActiveTool> {
         &self.active_tools
     }
 
@@ -214,9 +257,10 @@ impl Session {
         }
     }
     
-    /// Handle agent thinking event
-    pub fn handle_agent_thinking(&mut self, thinking: String) {
-        self.add_thinking_message(thinking);
+    /// Replace all messages with new ones (for loading saved chats)
+    pub fn replace_messages(&mut self, messages: Vec<ChatMessage>) {
+        self.messages = messages;
+        self.active_tools.clear();
     }
 }
 
@@ -228,7 +272,6 @@ impl ChatMessage {
             MessageRole::Agent => format!("Agent: {}", self.content),
             MessageRole::System => format!("System: {}", self.content),
             MessageRole::Error => format!("Error: {}", self.content),
-            MessageRole::Thinking => format!("💭 Thinking: {}", self.content),
         }
     }
     
@@ -239,7 +282,6 @@ impl ChatMessage {
             MessageRole::Agent => "green",
             MessageRole::System => "yellow",
             MessageRole::Error => "red",
-            MessageRole::Thinking => "cyan",
         }
     }
 }

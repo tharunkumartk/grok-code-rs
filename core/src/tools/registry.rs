@@ -110,8 +110,8 @@ impl ToolRegistry {
                 "properties": {
                     "path": { "type": "string", "description": "File path to write" },
                     "contents": { "type": "string", "description": "File contents" },
-                    "create_if_missing": { "type": "boolean", "description": "Create file if it doesn't exist" },
-                    "overwrite": { "type": "boolean", "description": "Overwrite existing file" }
+                    "create_if_missing": { "type": "boolean", "default": true, "description": "Create file and parent directories if they don't exist (default: true)" },
+                    "overwrite": { "type": "boolean", "default": false, "description": "Overwrite existing file (default: false)" }
                 },
                 "required": ["path", "contents"]
             }),
@@ -342,6 +342,68 @@ impl ToolRegistry {
             side_effects: true,
             needs_approval: true,
             timeout_ms: Some(30000),
+        });
+
+        // large_context_fetch
+        self.specs.insert(ToolName::LargeContextFetch, ToolSpec {
+            name: ToolName::LargeContextFetch,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "user_query": { 
+                        "type": "string", 
+                        "description": "The user's query to find relevant code context for" 
+                    },
+                    "base_path": { 
+                        "type": "string", 
+                        "description": "Base directory to search from (default: current directory)" 
+                    },
+                    "max_files": { 
+                        "type": "integer", 
+                        "minimum": 1, 
+                        "maximum": 500,
+                        "description": "Maximum number of files to analyze (default: 200)" 
+                    },
+                    "include_extensions": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "File extensions to include (default: common code file extensions)"
+                    },
+                    "exclude_patterns": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Gitignore-style patterns to exclude from search (default: common ignore patterns)"
+                    }
+                },
+                "required": ["user_query"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "relevant_files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string" },
+                                "contents": { "type": "string" },
+                                "language": { "type": "string" },
+                                "size_bytes": { "type": "integer" },
+                                "truncated": { "type": "boolean" }
+                            }
+                        }
+                    },
+                    "llm_reasoning": { "type": "string" },
+                    "total_files_analyzed": { "type": "integer" },
+                    "total_files_returned": { "type": "integer" },
+                    "execution_time_ms": { "type": "integer" }
+                },
+                "required": ["relevant_files", "llm_reasoning", "total_files_analyzed", "total_files_returned", "execution_time_ms"]
+            }),
+            streaming: false,
+            side_effects: false,
+            needs_approval: false,
+            timeout_ms: Some(60000), // 60 seconds for LLM call
         });
     }
 

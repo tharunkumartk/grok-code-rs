@@ -1,3 +1,12 @@
+//! Multi-model agent with fallback support
+//! 
+//! This agent supports multiple model providers with automatic fallback:
+//! - Primary: OpenRouter (from constructor parameters)
+//! - Secondary: Vercel AI Gateway (from VERCEL_AI_GATEWAY_API_KEY and VERCEL_AI_GATEWAY_MODEL env vars)
+//! 
+//! If one provider returns a non-200 response, the agent automatically tries the next one
+//! until all providers are exhausted.
+
 use crate::agent::{Agent, AgentError, AgentInfo, AgentResponse, ResponseMetadata};
 use crate::events::{AppEvent, EventSender, ToolName, TokenUsage};
 use crate::session::ChatMessage;
@@ -7,45 +16,69 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Instant;
 
-const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
-
-pub struct OpenRouterAgent {
-    info: AgentInfo,
-    api_key: String,
-    model: String,
-    referer: Option<String>,
-    title: Option<String>,
-    event_sender: EventSender,
-    tools: ToolRegistry,
-    enable_interleaved_thinking: bool,
+#[derive(Debug, Clone)]
+pub struct ModelConfig {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub name: String,
 }
 
-impl OpenRouterAgent {
+pub struct MultiModelAgent {
+    info: AgentInfo,
+    model_configs: Vec<ModelConfig>,
+    event_sender: EventSender,
+    tools: ToolRegistry,
+}
+
+impl MultiModelAgent {
     pub fn new(
         api_key: String,
         model: String,
-        referer: Option<String>,
-        title: Option<String>,
         event_sender: EventSender,
     ) -> anyhow::Result<Self> {
-        // Check environment variable for interleaved thinking setting
-        let enable_interleaved_thinking = std::env::var("GROK_ENABLE_INTERLEAVED_THINKING")
-            .map(|v| v.to_lowercase() == "true" || v == "1")
-            .unwrap_or(false);
+        // Build model configurations with fallback support
+        let mut model_configs = Vec::new();
+        
+        // Primary OpenRouter config
+        model_configs.push(ModelConfig {
+            base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+            api_key: api_key.clone(),
+            model: model.clone(),
+            name: "OpenRouter".to_string(),
+        });
+        
+        // Vercel AI Gateway config (if available)
+        if let Ok(vercel_api_key) = std::env::var("VERCEL_AI_GATEWAY_API_KEY") {
+            if let Ok(vercel_model) = std::env::var("VERCEL_AI_GATEWAY_MODEL") {
+                model_configs.push(ModelConfig {
+                    base_url: "https://ai-gateway.vercel.sh/v1/chat/completions".to_string(),
+                    api_key: vercel_api_key,
+                    model: vercel_model,
+                    name: "Vercel AI Gateway".to_string(),
+                });
+            }
+        }
+        
+        // Fallback to original params if no additional configs
+        if model_configs.len() == 1 {
+            model_configs.push(ModelConfig {
+                base_url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                api_key,
+                model,
+                name: "OpenRouter Fallback".to_string(),
+            });
+        }
         
         Ok(Self {
             info: AgentInfo {
-                name: "OpenRouter Agent".to_string(),
-                description: "Agent powered by OpenRouter with tool calling".to_string(),
+                name: "Multi-Model Agent".to_string(),
+                description: "Agent with multiple model provider support and fallback".to_string(),
                 version: "0.1.0".to_string(),
             },
-            api_key,
-            model,
-            referer,
-            title,
+            model_configs,
             event_sender,
             tools: ToolRegistry::new(),
-            enable_interleaved_thinking,
         })
     }
 
@@ -58,6 +91,7 @@ impl OpenRouterAgent {
             "fs.find" => Some(ToolName::FsFind),
             "fs.read_all_code" => Some(ToolName::FsReadAllCode),
             "shell.exec" => Some(ToolName::ShellExec),
+            "large_context_fetch" => Some(ToolName::LargeContextFetch),
             "code.symbols" => Some(ToolName::CodeSymbols),
             _ => None,
         }
@@ -77,6 +111,7 @@ impl OpenRouterAgent {
                     ToolName::FsReadAllCode => "fs.read_all_code",
                     ToolName::ShellExec => "shell.exec",
                     ToolName::CodeSymbols => "code.symbols",
+                    ToolName::LargeContextFetch => "large_context_fetch",
                 };
                 json!({
                     "type": "function",
@@ -91,91 +126,7 @@ impl OpenRouterAgent {
     }
 
     fn get_system_prompt(&self) -> String {
-        let thinking_instructions = if self.enable_interleaved_thinking {
-            r#"
-
-# Interleaved Thinking
-You have the ability to think out loud between tool calls. When you need to reason about tool results or plan your next steps, you can share your internal thought process with the user. This makes your decision-making transparent and helps users understand your reasoning.
-
-To share your thinking:
-1. After receiving tool results, briefly analyze what you learned
-2. Explain your reasoning for the next tool call or action
-3. Share any insights, patterns, or connections you notice
-4. Be concise but informative - users value seeing your thought process
-
-Example thinking patterns:
-- "Based on the search results, I can see this codebase uses React with TypeScript. Let me examine the main component structure."
-- "The error suggests a missing dependency. I should check the package.json file to understand the current setup."
-- "I found the bug in the authentication flow. The issue is in the token validation logic. Let me examine that specific file."
-
-Your thinking should be natural and focused on the task at hand."#
-        } else {
-            ""
-        };
-
-        format!(r#"You are a coding agent running in Grok Code, a terminal-based coding assistant. You are expected to be precise, safe, and helpful.
-
-Your capabilities:
-- Receive user prompts and analyze codebases
-- Use tools to read files, search code, write files, apply patches, and execute shell commands
-- Communicate clearly and concisely with users
-- Help with debugging, code analysis, implementation, and development tasks
-
-# Personality
-Your default personality is concise, direct, and friendly. You communicate efficiently, keeping users clearly informed about ongoing actions without unnecessary detail. You prioritize actionable guidance, clearly stating assumptions and next steps.{}
-
-# Tool Usage Guidelines
-
-**File Operations:**
-- Use `fs.read` to read file contents with optional byte ranges
-- Use `fs.search` to find code patterns, functions, or text across the codebase
-- Use `fs.write` to create or modify files (respects overwrite settings)
-- Use `fs.apply_patch` for applying unified diffs
-- Use `fs.find` to locate files and directories by name with fuzzy matching
-- Use `fs.read_all_code` to read all code files in a directory (supports filtering by extensions and patterns)
-
-**Code Analysis:**
-- Use `code.symbols` to extract symbols (functions, classes, structs, etc.) from source files
-
-**Shell Commands:**
-- Use `shell.exec` to run terminal commands, build projects, run tests, etc.
-- You receive the complete stdout and stderr output from commands, allowing you to analyze results and debug issues
-- When listing files/directories, prefer commands that filter out unnecessary files:
-  - Use `ls -la | grep -v node_modules` instead of plain `ls -la`
-  - Use `find . -name "*.rs" -not -path "*/target/*"` to avoid build artifacts
-  - Use `rg --files` or `rg --files | grep -E '\.(rs|js|py|go)$'` for code files only
-  - Skip `.git`, `target/`, `node_modules/`, `dist/`, `build/` directories when possible
-- Set appropriate working directories and timeouts
-- Always explain what commands do before running them
-- Use command output to make informed decisions about next steps
-
-**Search Strategy:**
-- Start broad to understand the codebase structure
-- Use regex patterns when appropriate for complex searches
-- Limit search results to avoid overwhelming output
-- Search for specific patterns like function definitions, imports, TODO comments
-
-# Best Practices
-
-**Code Analysis:**
-- Read key files like README, main entry points, and configuration files first
-- Understand project structure before making changes
-- Look for existing patterns and conventions in the codebase
-- Check for tests and build scripts to understand the development workflow
-
-**Safety:**
-- Always validate file paths and commands before execution
-- Be cautious with destructive operations
-- Explain the impact of changes before implementing them
-- Prefer small, focused changes over large refactors
-
-**Efficiency:**
-- Group related operations together
-- Read only the necessary parts of large files
-- Use appropriate tools for each task (search vs read vs execute)
-- Provide progress updates for longer operations
-
-Your goal is to be a helpful, efficient coding partner that understands codebases quickly and makes precise, well-reasoned changes."#, thinking_instructions)
+        include_str!("../prompts/system_prompt.md").to_string()
     }
 
     fn convert_history(&self, history: &[ChatMessage]) -> Vec<Value> {
@@ -187,11 +138,9 @@ Your goal is to be a helpful, efficient coding partner that understands codebase
                     crate::session::MessageRole::Agent => "assistant",
                     crate::session::MessageRole::System => "system",
                     crate::session::MessageRole::Error => "system",
-                    crate::session::MessageRole::Thinking => "assistant",
                 };
                 let content = match m.role {
                     crate::session::MessageRole::Error => format!("[error] {}", m.content),
-                    crate::session::MessageRole::Thinking => format!("[thinking] {}", m.content),
                     _ => m.content.clone(),
                 };
                 json!({"role": role, "content": content})
@@ -199,37 +148,80 @@ Your goal is to be a helpful, efficient coding partner that understands codebase
             .collect()
     }
 
-    async fn http_post(&self, body: &Value) -> Result<OpenRouterResponse, AgentError> {
+    async fn http_post(&self, body: &Value) -> Result<ChatCompletionResponse, AgentError> {
         let client = reqwest::Client::new();
-        let mut req = client
-            .post(OPENROUTER_URL)
-            .bearer_auth(&self.api_key)
-            .header("Content-Type", "application/json");
-        if let Some(ref r) = self.referer { req = req.header("HTTP-Referer", r); }
-        if let Some(ref t) = self.title { req = req.header("X-Title", t); }
+        let mut last_error = None;
+        
+        // Try each model config until one succeeds
+        for (i, config) in self.model_configs.iter().enumerate() {
+            // Update the body with the current config's model
+            let mut request_body = body.clone();
+            if let Some(model_obj) = request_body.get_mut("model") {
+                *model_obj = json!(config.model);
+            }
+            
+            let req = client
+                .post(&config.base_url)
+                .bearer_auth(&config.api_key)
+                .header("Content-Type", "application/json");
 
-        let resp = req
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| AgentError::Network(format!("request error: {}", e)))?;
+            let resp = match req.json(&request_body).send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let error_msg = format!("{} request error: {}", config.name, e);
+                    last_error = Some(error_msg.clone());
+                    
+                    // Log the error but continue to next config
+                    let _ = self.event_sender.send(AppEvent::Error { 
+                        id: None, 
+                        message: format!("Failed to connect to {}, trying next provider...", config.name)
+                    });
+                    continue;
+                }
+            };
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(AgentError::Network(format!("{}: {}", status, text)));
+            if resp.status().is_success() {
+                match resp.json::<ChatCompletionResponse>().await {
+                    Ok(parsed) => {
+                        // Success! Log which provider was used
+                        if i > 0 {
+                            let _ = self.event_sender.send(AppEvent::Error { 
+                                id: None, 
+                                message: format!("Successfully using {} after {} failed attempts", config.name, i)
+                            });
+                        }
+                        return Ok(parsed);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("{} decode error: {}", config.name, e);
+                        last_error = Some(error_msg);
+                        continue;
+                    }
+                }
+            } else {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                let error_msg = format!("{} HTTP {}: {}", config.name, status, text);
+                last_error = Some(error_msg.clone());
+                
+                // Log non-success status but continue to next config
+                let _ = self.event_sender.send(AppEvent::Error { 
+                    id: None, 
+                    message: format!("{} returned {}, trying next provider...", config.name, status)
+                });
+                continue;
+            }
         }
-
-        let parsed: OpenRouterResponse = resp
-            .json()
-            .await
-            .map_err(|e| AgentError::Network(format!("decode error: {}", e)))?;
-        Ok(parsed)
+        
+        // All configs failed
+        Err(AgentError::Network(
+            last_error.unwrap_or_else(|| "All model providers failed".to_string())
+        ))
     }
 }
 
 #[async_trait]
-impl Agent for OpenRouterAgent {
+impl Agent for MultiModelAgent {
     async fn submit(
         &self,
         message: String,
@@ -251,11 +243,10 @@ impl Agent for OpenRouterAgent {
         let mut token_usage: Option<TokenUsage> = None;
 
         loop {
-            if turns > 8 { return Err(AgentError::Processing("Too many tool turns".to_string())); }
             turns += 1;
 
             let body = json!({
-                "model": self.model,
+                "model": self.model_configs[0].model, // Will be updated in http_post for each config
                 "messages": messages,
                 "tools": tools,
                 "tool_choice": "auto"
@@ -317,36 +308,6 @@ impl Agent for OpenRouterAgent {
                         }));
                     }
                     
-                    // If interleaved thinking is enabled, add a turn for the assistant to think
-                    // about the tool results before making the next tool call
-                    if self.enable_interleaved_thinking && turns > 1 {
-                        let thinking_body = json!({
-                            "model": self.model,
-                            "messages": messages.clone(),
-                            "max_tokens": 200, // Limit thinking to keep it concise
-                            "temperature": 0.7 // Allow some creativity in thinking
-                        });
-                        
-                        if let Ok(thinking_resp) = self.http_post(&thinking_body).await {
-                            if let Some(thinking_choice) = thinking_resp.choices.into_iter().next() {
-                                if let Some(thinking_msg) = thinking_choice.message {
-                                    if let Some(thinking_content) = thinking_msg.content {
-                                        if !thinking_content.trim().is_empty() {
-                                            // Emit thinking event for UI display
-                                            let _ = self.event_sender.send_agent_thinking(thinking_content.clone());
-                                            
-                                            // Add thinking to conversation history
-                                            messages.push(json!({
-                                                "role": "assistant",
-                                                "content": format!("[THINKING] {}", thinking_content)
-                                            }));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
                     // Continue loop for next assistant turn
                     continue;
                 }
@@ -379,18 +340,18 @@ impl Agent for OpenRouterAgent {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct OpenRouterResponse {
+struct ChatCompletionResponse {
     #[allow(dead_code)]
     id: String,
     #[allow(dead_code)]
     model: String,
     #[serde(default)]
-    usage: Option<OpenRouterUsage>,
+    usage: Option<TokenUsageResponse>,
     choices: Vec<Choice>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct OpenRouterUsage { prompt_tokens: i64, completion_tokens: i64, total_tokens: i64 }
+struct TokenUsageResponse { prompt_tokens: i64, completion_tokens: i64, total_tokens: i64 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct Choice {
