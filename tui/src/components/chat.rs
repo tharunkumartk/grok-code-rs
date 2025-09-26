@@ -6,6 +6,7 @@ use ratatui::{
     Frame,
 };
 use crate::state::AppState;
+use serde_json::Value;
 
 /// Component for rendering the chat panel
 pub struct ChatComponent;
@@ -20,7 +21,8 @@ impl ChatComponent {
         // If width is too small, don't wrap to avoid issues
         let should_wrap = available_width >= 10;
         
-        for msg in state.session.non_tool_messages() {
+        // NOTE: Include tool messages in the chat render so they are not hidden
+        for msg in state.session.messages() {
             match msg.role {
                 grok_core::MessageRole::User => {
                     Self::render_user_message(&mut chat_lines, &msg.content, available_width, should_wrap);
@@ -35,8 +37,7 @@ impl ChatComponent {
                     Self::render_error_message(&mut chat_lines, &msg.content, available_width, should_wrap);
                 }
                 grok_core::MessageRole::Tool => {
-                    // Tool messages are handled in the tools panel, not here
-                    continue;
+                    Self::render_tool_message(&mut chat_lines, msg.tool_info.as_ref(), available_width, should_wrap);
                 }
             }
             
@@ -139,6 +140,53 @@ impl ChatComponent {
         // Error messages - simple styling
         let style = Style::default().fg(Color::Red);
         Self::add_wrapped_text(chat_lines, content, style, available_width, should_wrap);
+    }
+
+    fn render_tool_message(
+        chat_lines: &mut Vec<Line>,
+        tool_info: Option<&grok_core::ToolMessageInfo>,
+        available_width: usize,
+        should_wrap: bool,
+    ) {
+        let style = Style::default().fg(Color::Magenta);
+
+        let text = match tool_info {
+            Some(info) => {
+                let tool_name = format!("{:?}", info.tool);
+                let params = match &info.args {
+                    Some(v) => Self::format_params(v),
+                    None => "none".to_string(),
+                };
+                format!("Agent ran {} with parameters {}", tool_name, params)
+            }
+            None => {
+                // Fallback (shouldn't normally happen)
+                "Agent ran a tool".to_string()
+            }
+        };
+
+        Self::add_wrapped_text(chat_lines, &text, style, available_width, should_wrap);
+    }
+
+    fn format_params(v: &Value) -> String {
+        // Prefer a compact k=v list for objects; otherwise JSON string
+        if let Some(map) = v.as_object() {
+            let mut parts: Vec<String> = Vec::new();
+            for (k, val) in map.iter() {
+                let s = if val.is_string() {
+                    format!("{}=\"{}\"", k, val.as_str().unwrap_or(""))
+                } else if val.is_number() || val.is_boolean() {
+                    format!("{}={}", k, val)
+                } else {
+                    // For arrays/objects, include compact JSON
+                    format!("{}={}", k, val)
+                };
+                parts.push(s);
+            }
+            if parts.is_empty() { "{}".to_string() } else { parts.join(", ") }
+        } else {
+            v.to_string()
+        }
     }
 
     fn add_wrapped_text(chat_lines: &mut Vec<Line>, content: &str, style: Style, available_width: usize, should_wrap: bool) {

@@ -416,36 +416,36 @@ impl ToolsComponent {
                 }
             }
             grok_core::ToolName::LargeContextFetch => {
-                if let Ok(context_result) = serde_json::from_value::<serde_json::Value>(result.clone()) {
-                    let mut content = String::new();
-                    
-                    // Show LLM reasoning
-                    if let Some(reasoning) = context_result.get("llm_reasoning").and_then(|r| r.as_str()) {
-                        content.push_str("🤖 LLM Analysis:\n");
-                        content.push_str(reasoning);
-                        content.push_str("\n\n");
+                // New shape: top-level array of { file_path, reason }
+                if let Some(arr) = result.as_array() {
+                    if arr.is_empty() {
+                        return "No relevant files returned".to_string();
                     }
-                    
-                    // Show summary stats
-                    if let (Some(analyzed), Some(returned)) = (
-                        context_result.get("total_files_analyzed").and_then(|a| a.as_u64()),
-                        context_result.get("total_files_returned").and_then(|r| r.as_u64())
-                    ) {
-                        content.push_str(&format!("📊 Summary: {} files analyzed, {} relevant files found\n\n", analyzed, returned));
-                    }
-                    
-                    // Show relevant files
-                    if let Some(files) = context_result.get("relevant_files").and_then(|f| f.as_array()) {
-                        content.push_str("📂 Relevant Files:\n");
-                        for (i, file) in files.iter().enumerate() {
-                            if let Some(path) = file.get("path").and_then(|p| p.as_str()) {
-                                let size = file.get("size_bytes").and_then(|s| s.as_u64()).unwrap_or(0);
-                                content.push_str(&format!("{}. {} ({} bytes)\n", i + 1, path, size));
-                            }
+            
+                    // Keep UI snappy if the list is huge
+                    const MAX_ITEMS: usize = 200;
+                    let mut out = String::new();
+                    out.push_str("Relevant Files:\n");
+            
+                    for (i, item) in arr.iter().take(MAX_ITEMS).enumerate() {
+                        let path = item.get("file_path").and_then(|v| v.as_str()).unwrap_or("<unknown>");
+                        let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+                        if reason.is_empty() {
+                            out.push_str(&format!("{}. {}\n", i + 1, path));
+                        } else {
+                            out.push_str(&format!("{}. {}\n   - {}\n", i + 1, path, reason));
                         }
                     }
-                    
-                    content
+            
+                    // If we truncated for display, hint to the user
+                    if arr.len() > MAX_ITEMS {
+                        out.push_str(&format!(
+                            "\n[Showing first {} of {} items]\n",
+                            MAX_ITEMS, arr.len()
+                        ));
+                    }
+            
+                    return out;
                 } else {
                     serde_json::to_string_pretty(result).unwrap_or_else(|_| "Invalid JSON".to_string())
                 }
