@@ -12,7 +12,7 @@ use crate::events::{AppEvent, EventSender, ToolName, TokenUsage};
 use crate::session::ChatMessage;
 use crate::tools::{ToolExecutor, ToolRegistry};
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -89,7 +89,6 @@ impl MultiModelAgent {
             "fs.write" => Some(ToolName::FsWrite),
             "fs.apply_patch" => Some(ToolName::FsApplyPatch),
             "fs.find" => Some(ToolName::FsFind),
-            "fs.read_all_code" => Some(ToolName::FsReadAllCode),
             "shell.exec" => Some(ToolName::ShellExec),
             "large_context_fetch" => Some(ToolName::LargeContextFetch),
             "code.symbols" => Some(ToolName::CodeSymbols),
@@ -108,7 +107,6 @@ impl MultiModelAgent {
                     ToolName::FsWrite => "fs.write",
                     ToolName::FsApplyPatch => "fs.apply_patch",
                     ToolName::FsFind => "fs.find",
-                    ToolName::FsReadAllCode => "fs.read_all_code",
                     ToolName::ShellExec => "shell.exec",
                     ToolName::CodeSymbols => "code.symbols",
                     ToolName::LargeContextFetch => "large_context_fetch",
@@ -138,12 +136,41 @@ impl MultiModelAgent {
                     crate::session::MessageRole::Agent => "assistant",
                     crate::session::MessageRole::System => "system",
                     crate::session::MessageRole::Error => "system",
+                    crate::session::MessageRole::Tool => "tool",
                 };
                 let content = match m.role {
                     crate::session::MessageRole::Error => format!("[error] {}", m.content),
+                    crate::session::MessageRole::Tool => {
+                        // For tool messages, we need to format them as tool responses
+                        if let Some(ref tool_info) = m.tool_info {
+                            // Combine result, stdout, and stderr into a single JSON payload
+                            let combined = json!({
+                                // "result": tool_info.result.clone().unwrap_or(json!(null)),
+                                "stdout": tool_info.stdout,
+                                "stderr": tool_info.stderr,
+                            });
+                            serde_json::to_string(&combined).unwrap_or_else(|_| "{}".to_string())
+                        } else {
+                            m.content.clone()
+                        }
+                    },
                     _ => m.content.clone(),
                 };
-                json!({"role": role, "content": content})
+                
+                if m.role == crate::session::MessageRole::Tool {
+                    // Tool messages need special formatting for OpenAI API
+                    if let Some(ref tool_info) = m.tool_info {
+                        json!({
+                            "role": role,
+                            "tool_call_id": tool_info.id,
+                            "content": content
+                        })
+                    } else {
+                        json!({"role": role, "content": content})
+                    }
+                } else {
+                    json!({"role": role, "content": content})
+                }
             })
             .collect()
     }
@@ -272,8 +299,16 @@ impl Agent for MultiModelAgent {
             // Tool calls?
             if let Some(msg) = choice.message {
                 if let Some(tool_calls) = msg.tool_calls {
+                    // Add the assistant's message with tool calls to the conversation
+                    messages.push(json!({
+                        "role": "assistant",
+                        "content": msg.content,
+                        "tool_calls": tool_calls
+                    }));
+
                     let executor = ToolExecutor::new(self.event_sender.clone())
                         .with_max_output_size(1024 * 1024); // 1MB limit, can be overridden by GROK_TOOL_MAX_OUTPUT_SIZE env var
+                    
                     for call in tool_calls {
                         let name = call.function.name;
                         let tool_name = self.map_tool_name(&name)
@@ -288,23 +323,22 @@ impl Agent for MultiModelAgent {
 
                         // Execute tool and get result
                         let tool_result = match executor.execute_tool_with_result(call.id.clone(), tool_name.clone(), args.clone()).await {
-                            Ok(result) => json!({
-                                "success": true,
-                                "result": result
-                            }),
-                            Err(e) => json!({
-                                "success": false,
-                                "error": e,
-                                "tool": format!("{:?}", tool_name),
-                                "args": args
-                            })
+                            Ok(result) => result,
+                            Err(e) => {
+                                // Return error as JSON string for the LLM to understand
+                                json!({
+                                    "error": e.to_string(),
+                                    "tool": format!("{:?}", tool_name),
+                                    "args": args
+                                })
+                            }
                         };
 
-                        // For transcript, include the actual tool result
+                        // Add tool result to conversation following OpenRouter format
                         messages.push(json!({
                             "role": "tool",
                             "tool_call_id": call.id,
-                            "content": serde_json::to_string_pretty(&tool_result).unwrap_or_else(|_| "{}".to_string())
+                            "content": serde_json::to_string(&tool_result).unwrap_or_else(|_| "{}".to_string())
                         }));
                     }
                     
@@ -314,6 +348,11 @@ impl Agent for MultiModelAgent {
 
                 // Assistant content present, finish
                 if let Some(content) = msg.content {
+                    // Add the assistant's final response to the conversation
+                    messages.push(json!({
+                        "role": "assistant",
+                        "content": content
+                    }));
                     final_text = content;
                     break;
                 }
@@ -371,7 +410,7 @@ struct Message {
     tool_calls: Option<Vec<ToolCall>>, 
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ToolCall {
     id: String,
     #[serde(rename = "type")]
@@ -379,7 +418,7 @@ struct ToolCall {
     function: FunctionCall,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct FunctionCall { name: String, arguments: String }
 
 

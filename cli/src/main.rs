@@ -9,7 +9,6 @@ async fn main() -> Result<()> {
         .with_max_level(tracing::Level::WARN)
         .with_writer(std::io::stderr)
         .init();
-    info!("Starting Grok Code CLI");
     
     // For now, just launch the TUI
     // In the future, this could parse command line arguments
@@ -33,6 +32,5 @@ async fn main() -> Result<()> {
     let mut app = grok_tui::App::new(session, event_bus.into_receiver());
     app.run().await?;
     
-    info!("Grok Code CLI shutting down");
     Ok(())
 }

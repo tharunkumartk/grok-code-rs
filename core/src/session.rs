@@ -2,7 +2,6 @@ use crate::agent::Agent;
 use crate::events::{EventSender, ToolName};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 // Unused imports removed
@@ -14,25 +13,11 @@ pub struct Session {
     messages: Vec<ChatMessage>,
     agent: std::sync::Arc<dyn Agent>,
     event_sender: EventSender,
-    active_tools: HashMap<String, ActiveTool>,
 }
 
-/// Information about an active tool execution
-#[derive(Debug, Clone)]
-pub struct ActiveTool {
-    pub id: String,
-    pub tool: ToolName,
-    pub summary: String,
-    pub args: Option<serde_json::Value>,
-    pub start_time: SystemTime,
-    pub status: ToolStatus,
-    pub stdout: String,
-    pub stderr: String,
-    pub result: Option<serde_json::Value>,
-}
 
 /// Status of a tool execution
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ToolStatus {
     Running,
     Completed,
@@ -45,6 +30,21 @@ pub struct ChatMessage {
     pub role: MessageRole,
     pub content: String,
     pub timestamp_secs: u64,  // Unix timestamp in seconds for serialization
+    pub tool_info: Option<ToolMessageInfo>,
+}
+
+/// Information about a tool execution for tool messages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolMessageInfo {
+    pub id: String,
+    pub tool: ToolName,
+    pub summary: String,
+    pub args: Option<serde_json::Value>,
+    pub start_time: SystemTime,
+    pub status: ToolStatus,
+    pub stdout: String,
+    pub stderr: String,
+    pub result: Option<serde_json::Value>,
 }
 
 /// Who sent the message
@@ -54,21 +54,18 @@ pub enum MessageRole {
     Agent,
     System,
     Error,
+    Tool,
 }
 
 impl Session {
     /// Create a new session with the given agent
     pub fn new(agent: std::sync::Arc<dyn Agent>, event_sender: EventSender) -> Self {
-        let mut session = Self {
+        let session = Self {
             messages: Vec::new(),
             agent,
             event_sender,
-            active_tools: HashMap::new(),
         };
-        
-        // Add welcome message
-        session.add_system_message("Welcome to Grok Code! Type your message and press Enter.".to_string());
-        
+           
         session
     }
 
@@ -103,7 +100,6 @@ impl Session {
         if self.messages.is_empty() {
             self.add_system_message("Welcome to Grok Code! Type your message and press Enter.".to_string());
         }
-        self.active_tools.clear();  // Clear tools on load
         Ok(())
     }
 
@@ -142,6 +138,7 @@ impl Session {
             role: MessageRole::User,
             content,
             timestamp_secs,
+            tool_info: None,
         };
         self.messages.push(message);
     }
@@ -155,6 +152,7 @@ impl Session {
             role: MessageRole::Agent,
             content,
             timestamp_secs,
+            tool_info: None,
         };
         self.messages.push(message);
         // Auto-save after agent response
@@ -170,6 +168,7 @@ impl Session {
             role: MessageRole::System,
             content,
             timestamp_secs,
+            tool_info: None,
         };
         self.messages.push(message);
     }
@@ -183,6 +182,7 @@ impl Session {
             role: MessageRole::Error,
             content,
             timestamp_secs,
+            tool_info: None,
         };
         self.messages.push(message);
     }
@@ -190,7 +190,6 @@ impl Session {
     /// Clear all messages and reset session state
     pub fn clear(&mut self) {
         self.messages.clear();
-        self.active_tools.clear();
         self.add_system_message("Conversation and context cleared.".to_string());
     }
     
@@ -199,14 +198,33 @@ impl Session {
         self.agent.info()
     }
 
-    /// Get active tools
-    pub fn active_tools(&self) -> &HashMap<String, ActiveTool> {
-        &self.active_tools
+    /// Add a tool message to the conversation
+    pub fn add_tool_message(&mut self, tool_info: ToolMessageInfo) {
+        let timestamp_secs = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0u64, |d| d.as_secs());
+        let message = ChatMessage {
+            role: MessageRole::Tool,
+            content: format!("Agent ran {}", tool_info.summary),
+            timestamp_secs,
+            tool_info: Some(tool_info),
+        };
+        self.messages.push(message);
     }
 
-    /// Handle tool begin event
+    /// Get all tool messages from the conversation
+    pub fn tool_messages(&self) -> Vec<&ChatMessage> {
+        self.messages.iter().filter(|msg| msg.role == MessageRole::Tool).collect()
+    }
+
+    /// Get all non-tool messages from the conversation
+    pub fn non_tool_messages(&self) -> Vec<&ChatMessage> {
+        self.messages.iter().filter(|msg| msg.role != MessageRole::Tool).collect()
+    }
+
+    /// Handle tool begin event - creates a new tool message
     pub fn handle_tool_begin(&mut self, id: String, tool: ToolName, summary: String, args: Option<serde_json::Value>) {
-        let active_tool = ActiveTool {
+        let tool_info = ToolMessageInfo {
             id: id.clone(),
             tool,
             summary,
@@ -217,50 +235,72 @@ impl Session {
             stderr: String::new(),
             result: None,
         };
-        self.active_tools.insert(id, active_tool);
+        self.add_tool_message(tool_info);
     }
 
     /// Handle tool progress event
     pub fn handle_tool_progress(&mut self, id: String, _message: String) {
-        // Progress events don't need to update stored state for now
-        // They're handled by the UI directly
-        if let Some(_tool) = self.active_tools.get_mut(&id) {
-            // Could store progress messages if needed
+        // Find the most recent tool message with this ID and update it
+        if let Some(_msg) = self.messages.iter_mut().rev().find(|msg| {
+            msg.role == MessageRole::Tool && 
+            msg.tool_info.as_ref().map(|ti| ti.id == id).unwrap_or(false)
+        }) {
+            // Progress events don't need to update stored state for now
+            // They're handled by the UI directly
         }
     }
 
     /// Handle tool stdout event
     pub fn handle_tool_stdout(&mut self, id: String, chunk: String) {
-        if let Some(tool) = self.active_tools.get_mut(&id) {
-            tool.stdout.push_str(&chunk);
+        if let Some(msg) = self.messages.iter_mut().rev().find(|msg| {
+            msg.role == MessageRole::Tool && 
+            msg.tool_info.as_ref().map(|ti| ti.id == id).unwrap_or(false)
+        }) {
+            if let Some(ref mut tool_info) = msg.tool_info {
+                tool_info.stdout.push_str(&chunk);
+            }
         }
     }
 
     /// Handle tool stderr event
     pub fn handle_tool_stderr(&mut self, id: String, chunk: String) {
-        if let Some(tool) = self.active_tools.get_mut(&id) {
-            tool.stderr.push_str(&chunk);
+        if let Some(msg) = self.messages.iter_mut().rev().find(|msg| {
+            msg.role == MessageRole::Tool && 
+            msg.tool_info.as_ref().map(|ti| ti.id == id).unwrap_or(false)
+        }) {
+            if let Some(ref mut tool_info) = msg.tool_info {
+                tool_info.stderr.push_str(&chunk);
+            }
         }
     }
 
     /// Handle tool result event
     pub fn handle_tool_result(&mut self, id: String, payload: serde_json::Value) {
-        if let Some(tool) = self.active_tools.get_mut(&id) {
-            tool.result = Some(payload);
+        if let Some(msg) = self.messages.iter_mut().rev().find(|msg| {
+            msg.role == MessageRole::Tool && 
+            msg.tool_info.as_ref().map(|ti| ti.id == id).unwrap_or(false)
+        }) {
+            if let Some(ref mut tool_info) = msg.tool_info {
+                tool_info.result = Some(payload);
+            }
         }
     }
 
     /// Handle tool end event
     pub fn handle_tool_end(&mut self, id: String, ok: bool, _duration_ms: u64) {
-        if let Some(tool) = self.active_tools.get_mut(&id) {
-            tool.status = if ok { ToolStatus::Completed } else { ToolStatus::Failed };
+        if let Some(msg) = self.messages.iter_mut().rev().find(|msg| {
+            msg.role == MessageRole::Tool && 
+            msg.tool_info.as_ref().map(|ti| ti.id == id).unwrap_or(false)
+        }) {
+            if let Some(ref mut tool_info) = msg.tool_info {
+                tool_info.status = if ok { ToolStatus::Completed } else { ToolStatus::Failed };
+            }
         }
     }
     
     /// Replace all messages with new ones (for loading saved chats)
     pub fn replace_messages(&mut self, messages: Vec<ChatMessage>) {
         self.messages = messages;
-        self.active_tools.clear();
     }
 }
 
@@ -272,6 +312,7 @@ impl ChatMessage {
             MessageRole::Agent => format!("Agent: {}", self.content),
             MessageRole::System => format!("System: {}", self.content),
             MessageRole::Error => format!("Error: {}", self.content),
+            MessageRole::Tool => self.content.clone(),
         }
     }
     
@@ -282,6 +323,7 @@ impl ChatMessage {
             MessageRole::Agent => "green",
             MessageRole::System => "yellow",
             MessageRole::Error => "red",
+            MessageRole::Tool => "magenta",
         }
     }
 }

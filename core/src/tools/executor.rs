@@ -67,9 +67,6 @@ impl ToolExecutor {
             ToolName::FsWrite => self.fs_executor.execute_write_with_result(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch_with_result(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find_with_result(id.clone(), args).await,
-            // TEMPORARILY COMMENTED OUT
-            // ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code_with_result(id.clone(), args).await,
-            ToolName::FsReadAllCode => Err("FsReadAllCode is temporarily disabled".to_string()),
             ToolName::ShellExec => self.shell_executor.execute_with_result(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols_with_result(id.clone(), args).await,
             ToolName::LargeContextFetch => self.llm_executor.execute_large_context_fetch_with_result(id.clone(), args).await,
@@ -108,9 +105,6 @@ impl ToolExecutor {
             ToolName::FsWrite => self.fs_executor.execute_write(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find(id.clone(), args).await,
-            // TEMPORARILY COMMENTED OUT
-            // ToolName::FsReadAllCode => self.fs_executor.execute_read_all_code(id.clone(), args).await,
-            ToolName::FsReadAllCode => Err("FsReadAllCode is temporarily disabled".to_string()),
             ToolName::ShellExec => self.shell_executor.execute(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols(id.clone(), args).await,
             ToolName::LargeContextFetch => self.llm_executor.execute_large_context_fetch(id.clone(), args).await,
@@ -157,14 +151,6 @@ impl ToolExecutor {
                     format!("Finding files: {}", args.pattern)
                 } else {
                     "Finding files".to_string()
-                }
-            }
-            ToolName::FsReadAllCode => {
-                if let Ok(args) = serde_json::from_value::<FsReadAllCodeArgs>(args.clone()) {
-                    let base = args.base_path.as_deref().unwrap_or(".");
-                    format!("Reading all code files from: {}", base)
-                } else {
-                    "Reading all code files".to_string()
                 }
             }
             ToolName::ShellExec => {

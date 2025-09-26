@@ -45,13 +45,11 @@ async fn test_tool_registry_get_spec_by_name() {
     let spec = fs_read_spec.unwrap();
     assert_eq!(spec.name, ToolName::FsRead);
     assert!(!spec.side_effects);
-    assert!(!spec.needs_approval);
     
     // Test properties of different tools
     let shell_spec = registry.get_spec(&ToolName::ShellExec).unwrap();
     assert_eq!(shell_spec.name, ToolName::ShellExec);
     assert!(shell_spec.side_effects);
-    assert!(shell_spec.needs_approval);
     assert!(shell_spec.streaming);
 }
 
@@ -237,24 +235,20 @@ async fn test_tool_registry_tool_characteristics() {
     // Test file system tools
     let fs_read_spec = registry.get_spec(&ToolName::FsRead).unwrap();
     assert!(!fs_read_spec.side_effects);
-    assert!(!fs_read_spec.needs_approval);
     assert!(!fs_read_spec.streaming);
     
     let fs_write_spec = registry.get_spec(&ToolName::FsWrite).unwrap();
     assert!(fs_write_spec.side_effects);
-    assert!(fs_write_spec.needs_approval);
     assert!(!fs_write_spec.streaming);
     
     // Test shell execution
     let shell_spec = registry.get_spec(&ToolName::ShellExec).unwrap();
     assert!(shell_spec.side_effects);
-    assert!(shell_spec.needs_approval);
     assert!(shell_spec.streaming);
     
     // Test code analysis
     let code_spec = registry.get_spec(&ToolName::CodeSymbols).unwrap();
     assert!(!code_spec.side_effects);
-    assert!(!code_spec.needs_approval);
     assert!(!code_spec.streaming);
 }
 

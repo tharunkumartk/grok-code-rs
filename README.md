@@ -12,7 +12,7 @@ A terminal-based coding assistant powered by AI. Grok Code provides an interacti
   - File finding (`fs.find`) with fuzzy matching and file type filtering.
   - Code symbol extraction (`code.symbols`) for functions, classes, structs, and more across multiple languages.
   - Shell command execution (`shell.exec`) with timeouts, environment vars, and streaming output.
-- **Safety Features**: Tool outputs are truncated to prevent token limits; approval requests for destructive operations (simplified in current version).
+- **Safety Features**: Tool outputs are truncated to prevent token limits.
 - **Event-Driven Architecture**: Asynchronous event bus for handling agent responses, tool progress, and UI updates.
 - **Multi-Crate Structure**: Modular design with `core` (logic), `tui` (interface), and `cli` (entry point).
 
@@ -105,7 +105,6 @@ The app runs in a `tokio::main` loop, processing terminal events and app events 
 
 ## Limitations & Roadmap
 - **Patch Tool**: Basic unified diff parser; needs robust hunk application.
-- **Approval UI**: Auto-approves for demo; add interactive prompts.
 - **Streaming Responses**: Deltas accumulate; implement true streaming.
 - **Headless Mode**: CLI currently launches TUI; add non-interactive mode.
 - **More Agents**: Support local models (e.g., via Ollama).

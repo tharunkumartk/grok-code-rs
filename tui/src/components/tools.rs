@@ -14,7 +14,7 @@ pub struct ToolsComponent;
 impl ToolsComponent {
     /// Render the tools panel
     pub fn render(state: &mut AppState, f: &mut Frame, area: Rect) {
-        let active_tools = state.session.active_tools();
+        let tool_messages = state.session.tool_messages();
         
         let border_style = if state.focused_panel == 2 {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -28,8 +28,8 @@ impl ToolsComponent {
             " Tools "
         };
         
-        if active_tools.is_empty() {
-            let placeholder = Paragraph::new("No active tools\n\nPress Tab to switch focus\nUse ↑↓ or scroll wheel to scroll when focused")
+        if tool_messages.is_empty() {
+            let placeholder = Paragraph::new("No tools executed\n\nPress Tab to switch focus\nUse ↑↓ or scroll wheel to scroll when focused")
                 .style(Style::default().fg(Color::DarkGray))
                 .block(Block::default()
                     .borders(Borders::ALL)
@@ -46,12 +46,14 @@ impl ToolsComponent {
         // If width is too small, don't wrap to avoid issues
         let should_wrap = available_width >= 10;
 
-        // Sort tools by start time (oldest first, so newest appear at bottom)
-        let mut sorted_tools: Vec<_> = active_tools.iter().collect();
-        sorted_tools.sort_by(|a, b| a.1.start_time.cmp(&b.1.start_time));
+        // Sort tools by timestamp (oldest first, so newest appear at bottom)
+        let mut sorted_tools: Vec<_> = tool_messages.iter().collect();
+        sorted_tools.sort_by(|a, b| a.timestamp_secs.cmp(&b.timestamp_secs));
         
-        for (_tool_id, tool) in sorted_tools {
-            Self::render_tool(&mut all_lines, tool, available_width, should_wrap);
+        for msg in sorted_tools {
+            if let Some(ref tool_info) = msg.tool_info {
+                Self::render_tool(&mut all_lines, tool_info, available_width, should_wrap);
+            }
 
             // Add spacing between tools
             all_lines.push(Line::from(""));
@@ -113,7 +115,7 @@ impl ToolsComponent {
         }
     }
 
-    fn render_tool(all_lines: &mut Vec<Line>, tool: &grok_core::ActiveTool, available_width: usize, should_wrap: bool) {
+    fn render_tool(all_lines: &mut Vec<Line>, tool: &grok_core::ToolMessageInfo, available_width: usize, should_wrap: bool) {
         // Tool header
         let status_icon = match tool.status {
             ToolStatus::Running => "🔄",
@@ -278,19 +280,6 @@ impl ToolsComponent {
                     all_lines.push(Line::from(""));
                 }
             }
-            grok_core::ToolName::FsReadAllCode => {
-                if let Ok(read_all_args) = serde_json::from_value::<grok_core::tools::FsReadAllCodeArgs>(args.clone()) {
-                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-                    all_lines.push(Line::from(format!("  Base path: {}", read_all_args.base_path.as_deref().unwrap_or("."))));
-                    if let Some(max_files) = read_all_args.max_files {
-                        all_lines.push(Line::from(format!("  Max files: {}", max_files)));
-                    }
-                    if let Some(ref extensions) = read_all_args.include_extensions {
-                        all_lines.push(Line::from(format!("  Extensions: {}", extensions.join(", "))));
-                    }
-                    all_lines.push(Line::from(""));
-                }
-            }
             grok_core::ToolName::LargeContextFetch => {
                 if let Ok(context_args) = serde_json::from_value::<grok_core::tools::LargeContextFetchArgs>(args.clone()) {
                     all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
@@ -308,7 +297,7 @@ impl ToolsComponent {
         }
     }
 
-    fn format_tool_content(tool: &grok_core::ActiveTool) -> String {
+    fn format_tool_content(tool: &grok_core::ToolMessageInfo) -> String {
         match tool.status {
             ToolStatus::Running => {
                 let mut content = String::new();

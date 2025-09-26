@@ -43,9 +43,7 @@ pub enum AppEvent {
     ToolResult { id: String, payload: serde_json::Value },
     ToolEnd { id: String, ok: bool, duration_ms: u64 },
 
-    // Safety/approval/errors
-    ApprovalRequest { id: String, tool: ToolName, summary: String },
-    ApprovalDecision { id: String, approved: bool },
+    // Errors
     Error { id: Option<String>, message: String },
     TokenCount(TokenUsage),
     Background(String),
@@ -59,7 +57,6 @@ pub enum ToolName {
     FsWrite,
     FsApplyPatch,
     FsFind,
-    FsReadAllCode,
     ShellExec,
     CodeSymbols,
     LargeContextFetch,
@@ -81,7 +78,6 @@ pub struct ToolSpec {
     pub output_schema: serde_json::Value,  // JSON Schema
     pub streaming: bool,                   // supports stdout/stderr/progress
     pub side_effects: bool,                // mutates filesystem/environment
-    pub needs_approval: bool,              // may trigger ApprovalRequest
     pub timeout_ms: Option<u64>,
 }
 

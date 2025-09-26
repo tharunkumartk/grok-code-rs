@@ -2,7 +2,6 @@ pub mod executor_tests;
 pub mod fs_executor_tests;
 pub mod shell_executor_tests;
 pub mod code_executor_tests;
-pub mod llm_executor_tests;
 pub mod registry_tests;
 pub mod types_tests;
 

@@ -49,7 +49,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: false,
-            needs_approval: false,
             timeout_ms: Some(5000),
         });
 
@@ -98,7 +97,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: false,
-            needs_approval: false,
             timeout_ms: Some(10000),
         });
 
@@ -124,7 +122,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: true,
-            needs_approval: true,
             timeout_ms: Some(5000),
         });
 
@@ -153,7 +150,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: true,
-            needs_approval: true,
             timeout_ms: Some(10000),
         });
 
@@ -201,59 +197,8 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: false,
-            needs_approval: false,
             timeout_ms: Some(10000),
         });
-
-        // fs.read_all_code
-        self.specs.insert(ToolName::FsReadAllCode, ToolSpec {
-            name: ToolName::FsReadAllCode,
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "base_path": { "type": "string", "description": "Base directory to search from (default: current directory)" },
-                    "max_files": { "type": "integer", "minimum": 1, "description": "Maximum number of files to read (default: 100)" },
-                    "exclude_patterns": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Gitignore-style patterns to exclude from search (default: common ignore patterns)"
-                    },
-                    "include_extensions": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "File extensions to include (default: common code file extensions)"
-                    }
-                }
-            }),
-            output_schema: json!({
-                "type": "object",
-                "properties": {
-                    "files": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path": { "type": "string" },
-                                "contents": { "type": "string" },
-                                "language": { "type": "string" },
-                                "size_bytes": { "type": "integer" },
-                                "truncated": { "type": "boolean" }
-                            }
-                        }
-                    },
-                    "total_files_found": { "type": "integer" },
-                    "total_files_read": { "type": "integer" },
-                    "total_size_bytes": { "type": "integer" },
-                    "search_time_ms": { "type": "integer" }
-                },
-                "required": ["files", "total_files_found", "total_files_read", "total_size_bytes", "search_time_ms"]
-            }),
-            streaming: false,
-            side_effects: false,
-            needs_approval: false,
-            timeout_ms: Some(30000),
-        });
-
         // code.symbols
         self.specs.insert(ToolName::CodeSymbols, ToolSpec {
             name: ToolName::CodeSymbols,
@@ -296,7 +241,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: false,
-            needs_approval: false,
             timeout_ms: Some(5000),
         });
 
@@ -340,7 +284,6 @@ impl ToolRegistry {
             }),
             streaming: true,
             side_effects: true,
-            needs_approval: true,
             timeout_ms: Some(30000),
         });
 
@@ -402,7 +345,6 @@ impl ToolRegistry {
             }),
             streaming: false,
             side_effects: false,
-            needs_approval: false,
             timeout_ms: Some(60000), // 60 seconds for LLM call
         });
     }

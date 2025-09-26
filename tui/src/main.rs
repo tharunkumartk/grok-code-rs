@@ -62,15 +62,6 @@ async fn main() -> Result<()> {
     // Create session
     let mut session = Session::new(agent, event_sender.clone());
     
-    // Check for previous history and notify user
-    let history_path = Session::default_history_path();
-    if history_path.exists() {
-        session.add_system_message(format!(
-            "Previous chat history found at {:?}. Use /load to restore it, or /clear to start fresh.",
-            history_path
-        ));
-    }
-    
     // Create and run the TUI application
     let mut app = App::new(session, event_bus.into_receiver());
     app.run().await?;

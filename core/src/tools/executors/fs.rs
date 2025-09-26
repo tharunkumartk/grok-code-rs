@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Instant;
 use walkdir::WalkDir;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 
 /// File system operations executor
 pub struct FsExecutor {
@@ -143,6 +144,28 @@ impl FsExecutor {
 
         // Note: we used to determine search_paths here, but now handle globs directly in the loop below
 
+        // Precompile glob patterns (match against full paths by default; filename-only patterns are prefixed with **/)
+        let compiled_globs: Option<GlobSet> = if let Some(globs) = &args.globs {
+            if globs.is_empty() {
+                None
+            } else {
+                let mut builder = GlobSetBuilder::new();
+                for g in globs {
+                    // "**/*" means match everything
+                    if g == "**/*" { 
+                        // Add a catch-all to ensure matches
+                        builder.add(Glob::new("**/*").map_err(|e| format!("Invalid glob pattern {}: {}", g, e))?);
+                        continue;
+                    }
+                    let pattern = if g.contains('/') { g.clone() } else { format!("**/{}", g) };
+                    let glob = Glob::new(&pattern)
+                        .map_err(|e| format!("Invalid glob pattern {}: {}", g, e))?;
+                    builder.add(glob);
+                }
+                Some(builder.build().map_err(|e| format!("Failed to build globset: {}", e))?)
+            }
+        } else { None };
+
         // Walk through files
         for entry in WalkDir::new(".").max_depth(10) {
             if total_matches >= max_results {
@@ -159,24 +182,8 @@ impl FsExecutor {
             let path_str = path.to_string_lossy();
 
             // Check if path matches any glob pattern
-            if let Some(globs) = &args.globs {
-                let file_name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                let mut path_matches = false;
-                for glob in globs {
-                    if glob == "**/*" {
-                        path_matches = true;
-                        break;
-                    }
-                    // If the glob contains a path separator, match against the full path; otherwise match file name
-                    let target = if glob.contains('/') { path_str.as_ref() } else { file_name };
-                    if simple_glob_match(target, glob) {
-                        path_matches = true;
-                        break;
-                    }
-                }
-                if !path_matches {
+            if let Some(ref gs) = compiled_globs {
+                if !gs.is_match(path) {
                     continue;
                 }
             }
@@ -630,10 +637,29 @@ impl FsExecutor {
                     (false, "".to_string(), None)
                 }
             } else {
-                // Support simple glob patterns like "*.rs" when fuzzy matching is disabled
-                if simple_glob_match(&name_to_match, &pattern_to_match) {
-                    let is_exact = name_to_match == pattern_to_match;
-                    (true, if is_exact { "exact".to_string() } else { "partial".to_string() }, Some(if is_exact { 1.0 } else { 0.9 }))
+                // Support glob patterns using globset when fuzzy is disabled
+                let mut builder = GlobSetBuilder::new();
+                // If the pattern has a directory separator, match against full path; else match filename by prefixing **/
+                let pattern = if pattern_to_match.contains('/') { pattern_to_match.clone() } else { format!("**/{}", pattern_to_match) };
+                if let Ok(glob) = Glob::new(&pattern) {
+                    builder.add(glob);
+                    if let Ok(gs) = builder.build() {
+                        if gs.is_match(path) {
+                            let is_exact = name_to_match == pattern_to_match;
+                            (true, if is_exact { "exact".to_string() } else { "partial".to_string() }, Some(if is_exact { 1.0 } else { 0.9 }))
+                        } else if name_to_match.contains(&pattern_to_match) {
+                            (true, "partial".to_string(), Some(0.9))
+                        } else {
+                            (false, "".to_string(), None)
+                        }
+                    } else {
+                        // Fallback to substring on build error
+                        if name_to_match.contains(&pattern_to_match) {
+                            (true, "partial".to_string(), Some(0.9))
+                        } else {
+                            (false, "".to_string(), None)
+                        }
+                    }
                 } else if name_to_match.contains(&pattern_to_match) {
                     (true, "partial".to_string(), Some(0.9))
                 } else {
@@ -677,181 +703,6 @@ impl FsExecutor {
         Ok(truncated_result)
     }
 
-    // TEMPORARILY COMMENTED OUT
-    /*
-    pub async fn execute_read_all_code(&self, id: String, args: Value) -> Result<(), String> {
-        let _result = self.execute_read_all_code_with_result(id, args).await?;
-        Ok(())
-    }
-
-    pub async fn execute_read_all_code_with_result(&self, id: String, args: Value) -> Result<Value, String> {
-        let args: FsReadAllCodeArgs = serde_json::from_value(args)
-            .map_err(|e| format!("Invalid FsReadAllCode arguments: {}", e))?;
-
-        let start = Instant::now();
-
-        // Default values
-        let base_path = args.base_path.as_deref().unwrap_or(".");
-        let max_files = args.max_files.unwrap_or(100);
-        
-        // Default file extensions for code files
-        let default_extensions = vec![
-            "rs".to_string(), "py".to_string(), "js".to_string(), "ts".to_string(),
-            "tsx".to_string(), "jsx".to_string(), "go".to_string(), "java".to_string(),
-            "c".to_string(), "cpp".to_string(), "h".to_string(), "hpp".to_string(),
-            "cs".to_string(), "php".to_string(), "rb".to_string(), "swift".to_string(),
-            "kt".to_string(), "scala".to_string(), "r".to_string(), "m".to_string(),
-            "sh".to_string(), "bash".to_string(), "zsh".to_string(), "fish".to_string(),
-            "sql".to_string(), "html".to_string(), "css".to_string(), "scss".to_string(),
-            "sass".to_string(), "less".to_string(), "vue".to_string(), "svelte".to_string(),
-            "elm".to_string(), "clj".to_string(), "cljs".to_string(), "hs".to_string(),
-            "ml".to_string(), "fs".to_string(), "pl".to_string(), "lua".to_string(),
-            "dart".to_string(), "julia".to_string(), "nim".to_string(), "zig".to_string(),
-        ];
-
-        let include_extensions = args.include_extensions.as_ref().unwrap_or(&default_extensions);
-        
-        // Default exclude patterns
-        let default_excludes = vec![
-            "node_modules".to_string(), ".git".to_string(), "target".to_string(),
-            "build".to_string(), "dist".to_string(), ".next".to_string(), ".nuxt".to_string(),
-            "__pycache__".to_string(), "*.pyc".to_string(), "*.pyo".to_string(),
-            ".venv".to_string(), "venv".to_string(), "env".to_string(),
-            ".gradle".to_string(), ".idea".to_string(), ".vscode".to_string(),
-            "*.class".to_string(), "*.jar".to_string(), "*.war".to_string(),
-            "vendor".to_string(), "composer.lock".to_string(), "package-lock.json".to_string(),
-            "yarn.lock".to_string(), "Cargo.lock".to_string(),
-        ];
-
-        let exclude_patterns = args.exclude_patterns.as_ref().unwrap_or(&default_excludes);
-
-        // Send progress event
-        self.event_sender.send(AppEvent::ToolProgress {
-            id: id.clone(),
-            message: format!("Scanning for code files in: {}", base_path),
-        }).ok();
-
-        let base_path = Path::new(base_path);
-        if !base_path.exists() {
-            return Err(format!("Base path does not exist: {}", base_path.display()));
-        }
-
-        let mut files = Vec::new();
-        let mut total_files_found = 0u32;
-        let mut total_size_bytes = 0u64;
-
-        // Walk the directory tree
-        for entry in WalkDir::new(base_path)
-            .follow_links(false)
-            .max_depth(20) // Reasonable depth limit
-        {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue, // Skip entries we can't read
-            };
-
-            if !entry.file_type().is_file() {
-                continue;
-            }
-
-            let file_path = entry.path();
-            let relative_path = file_path.strip_prefix(base_path)
-                .unwrap_or(file_path)
-                .to_string_lossy()
-                .to_string();
-
-            // Check exclude patterns
-            let should_exclude = exclude_patterns.iter().any(|pattern| {
-                if pattern.contains('*') {
-                    simple_glob_match(&relative_path, pattern)
-                } else {
-                    relative_path.contains(pattern)
-                }
-            });
-
-            if should_exclude {
-                continue;
-            }
-
-            // Check file extension
-            let extension = file_path.extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("");
-
-            if !include_extensions.contains(&extension.to_string()) {
-                continue;
-            }
-
-            total_files_found += 1;
-
-            // Check if we've hit the max files limit
-            if files.len() >= max_files as usize {
-                continue;
-            }
-
-            // Try to read the file
-            let (contents, size, truncated) = match tokio::fs::read(file_path).await {
-                Ok(bytes) => {
-                    let size = bytes.len() as u64;
-                    total_size_bytes += size;
-
-                    // Convert to string with error handling
-                    let contents = String::from_utf8_lossy(&bytes);
-                    
-                    // Truncate very large files to prevent memory issues
-                    const MAX_FILE_SIZE: usize = 512 * 1024; // 512KB per file
-                    if contents.len() > MAX_FILE_SIZE {
-                        (contents[..MAX_FILE_SIZE].to_string(), size, true)
-                    } else {
-                        (contents.to_string(), size, false)
-                    }
-                }
-                Err(_) => continue, // Skip files we can't read
-            };
-
-            // Detect language from extension
-            let language = detect_language(extension);
-
-            // Send progress update every 10 files
-            if files.len() % 10 == 0 {
-                self.event_sender.send(AppEvent::ToolProgress {
-                    id: id.clone(),
-                    message: format!("Read {} files...", files.len()),
-                }).ok();
-            }
-
-            files.push(CodeFile {
-                path: relative_path,
-                contents,
-                language,
-                size_bytes: size,
-                truncated,
-            });
-        }
-
-        let search_time_ms = start.elapsed().as_millis() as u64;
-
-        let total_files_read = files.len() as u32;
-        let result = FsReadAllCodeResult {
-            files,
-            total_files_found,
-            total_files_read,
-            total_size_bytes,
-            search_time_ms,
-        };
-
-        let result_json = serde_json::to_value(result)
-            .map_err(|e| format!("Failed to serialize result: {}", e))?;
-
-        // Send the result as a tool result event
-        self.event_sender.send(AppEvent::ToolResult {
-            id,
-            payload: result_json.clone(),
-        }).ok();
-
-        Ok(self.truncate_result(result_json))
-    }
-    */
 }
 
 // Helper functions for fs.find
@@ -898,22 +749,7 @@ fn calculate_fuzzy_score(pattern: &str, text: &str) -> f64 {
     }
 }
 
-// Very simple glob matcher supporting '*' wildcard. Anchored by default.
-// If pattern contains '/', it should be matched against the full path; otherwise against the file name.
-fn simple_glob_match(text: &str, pattern: &str) -> bool {
-    // Fast path: exact match
-    if pattern == text { return true; }
-
-    // Convert glob to regex: escape regex meta, then replace '\*' with '.*'
-    // Anchor the regex to match the whole string
-    let mut escaped = regex::escape(pattern);
-    escaped = escaped.replace("\\*", ".*");
-    let regex_pattern = format!("^{}$", escaped);
-    match regex::Regex::new(&regex_pattern) {
-        Ok(re) => re.is_match(text),
-        Err(_) => false,
-    }
-}
+// simple_glob_match has been replaced by globset-based matching in callers.
 
 // Helper functions for fs.find (already defined above, keeping only detect_language)
 

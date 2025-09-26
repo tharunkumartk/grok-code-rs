@@ -20,7 +20,7 @@ impl ChatComponent {
         // If width is too small, don't wrap to avoid issues
         let should_wrap = available_width >= 10;
         
-        for msg in state.session.messages() {
+        for msg in state.session.non_tool_messages() {
             match msg.role {
                 grok_core::MessageRole::User => {
                     Self::render_user_message(&mut chat_lines, &msg.content, available_width, should_wrap);
@@ -33,6 +33,10 @@ impl ChatComponent {
                 }
                 grok_core::MessageRole::Error => {
                     Self::render_error_message(&mut chat_lines, &msg.content, available_width, should_wrap);
+                }
+                grok_core::MessageRole::Tool => {
+                    // Tool messages are handled in the tools panel, not here
+                    continue;
                 }
             }
             

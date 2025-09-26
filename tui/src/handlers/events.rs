@@ -66,20 +66,6 @@ impl EventHandler {
             AppEvent::ToolBegin { id, tool, summary, args } => {
                 debug!("Tool {} started: {}", id, summary);
                 
-                // Add a system message to chat panel indicating tool usage
-                let tool_display_name = match tool {
-                    grok_core::ToolName::FsRead => "file reader",
-                    grok_core::ToolName::FsSearch => "file search",
-                    grok_core::ToolName::FsWrite => "file writer",
-                    grok_core::ToolName::FsApplyPatch => "patch applicator",
-                    grok_core::ToolName::FsFind => "file finder",
-                    grok_core::ToolName::FsReadAllCode => "code reader",
-                    grok_core::ToolName::ShellExec => "shell command",
-                    grok_core::ToolName::CodeSymbols => "code analyzer",
-                    grok_core::ToolName::LargeContextFetch => "context analyzer",
-                };
-                state.session.add_system_message(format!("Agent ran {} tool", tool_display_name));
-                
                 state.session.handle_tool_begin(id, tool, summary, args);
                 // Re-enable auto-scroll for new tools and chat
                 state.auto_scroll_tools = true;
@@ -106,16 +92,6 @@ impl EventHandler {
                 state.session.handle_tool_end(id, ok, duration_ms);
             }
 
-            // Safety/approval events
-            AppEvent::ApprovalRequest { id: _, tool, summary } => {
-                debug!("Approval requested for tool {:?}: {}", tool, summary);
-                // For mock implementation, auto-approve
-                // In real implementation, show approval UI
-                state.session.add_system_message(format!("Tool {:?} needs approval: {}", tool, summary));
-            }
-            AppEvent::ApprovalDecision { id, approved } => {
-                debug!("Approval decision for {}: {}", id, approved);
-            }
 
             // Error and background events
             AppEvent::Error { id: _, message } => {
