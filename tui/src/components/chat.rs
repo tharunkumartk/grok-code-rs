@@ -7,105 +7,141 @@ use ratatui::{
 };
 use crate::state::AppState;
 use serde_json::Value;
+use std::time::SystemTime;
 
 /// Component for rendering the chat panel
 pub struct ChatComponent;
 
+fn format_relative_time(tm: &SystemTime) -> String {
+    let now = SystemTime::now();
+    if let Ok(dur) = now.duration_since(*tm) {
+        let secs = dur.as_secs();
+        if secs < 60 {
+            "just now".to_string()
+        } else if secs < 3600 {
+            format!("{}m ago", secs / 60)
+        } else if secs < 86400 {
+            format!("{}h ago", secs / 3600)
+        } else {
+            format!("{}d ago", secs / 86400)
+        }
+    } else {
+        "long ago".to_string()
+    }
+}
+
 impl ChatComponent {
     /// Render the chat messages
     pub fn render(state: &mut AppState, f: &mut Frame, area: Rect) {
-        // Prepare chat text
-        let mut chat_lines = Vec::new();
-        let available_width = area.width.saturating_sub(4) as usize; // Account for borders and padding
-
-        // If width is too small, don't wrap to avoid issues
-        let should_wrap = available_width >= 10;
-        
-        // NOTE: Include tool messages in the chat render so they are not hidden
-        for msg in state.session.messages() {
-            match msg.role {
-                grok_core::MessageRole::User => {
-                    Self::render_user_message(&mut chat_lines, &msg.content, available_width, should_wrap);
-                }
-                grok_core::MessageRole::Agent => {
-                    Self::render_agent_message(&mut chat_lines, &msg.content, available_width);
-                }
-                grok_core::MessageRole::System => {
-                    Self::render_system_message(&mut chat_lines, &msg.content, available_width, should_wrap);
-                }
-                grok_core::MessageRole::Error => {
-                    Self::render_error_message(&mut chat_lines, &msg.content, available_width, should_wrap);
-                }
-                grok_core::MessageRole::Tool => {
-                    Self::render_tool_message(&mut chat_lines, msg.tool_info.as_ref(), available_width, should_wrap);
-                }
+        if state.show_chat_list {
+            let mut lines = vec![Line::from("Select a chat to load (↑/↓ to navigate, Enter to load, Esc to start new):")];
+            for (i, chat) in state.available_chats.iter().enumerate() {
+                let prefix = if i == state.selected_chat_index { "> " } else { "  " };
+                let time_str = format_relative_time(&chat.last_modified);
+                let line = format!("{} {} ({} ago)", prefix, chat.title, time_str);
+                lines.push(Line::from(line));
             }
+            lines.push(Line::from(" "));
+            lines.push(Line::from("Press Tab to switch panels or Ctrl+C to quit. "));
+            let text = Text::from(lines);
+            let title = if state.focused_panel == 1 { " Previous Chats [FOCUSED] " } else { " Previous Chats " };
+            let border_style = if state.focused_panel == 1 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
+            let block = Block::default().title(title).borders(Borders::ALL).border_style(border_style);
+            let para = Paragraph::new(text).block(block).wrap(ratatui::widgets::Wrap { trim: false });
+            f.render_widget(para, area);
+        } else {
+            let mut chat_lines = Vec::new();
+            let available_width = area.width.saturating_sub(4) as usize; // Account for borders and padding
+
+            // If width is too small, don't wrap to avoid issues
+            let should_wrap = available_width >= 10;
             
-            // Add spacing between messages
-            chat_lines.push(Line::from(""));
-        }
+            // NOTE: Include tool messages in the chat render so they are not hidden
+            for msg in state.session.messages() {
+                match msg.role {
+                    grok_core::MessageRole::User => {
+                        Self::render_user_message(&mut chat_lines, &msg.content, available_width, should_wrap);
+                    }
+                    grok_core::MessageRole::Agent => {
+                        Self::render_agent_message(&mut chat_lines, &msg.content, available_width);
+                    }
+                    grok_core::MessageRole::System => {
+                        Self::render_system_message(&mut chat_lines, &msg.content, available_width, should_wrap);
+                    }
+                    grok_core::MessageRole::Error => {
+                        Self::render_error_message(&mut chat_lines, &msg.content, available_width, should_wrap);
+                    }
+                    grok_core::MessageRole::Tool => {
+                        Self::render_tool_message(&mut chat_lines, msg.tool_info.as_ref(), available_width, should_wrap);
+                    }
+                }
+                
+                // Add spacing between messages
+                chat_lines.push(Line::from(""));
+            }
 
-        // Calculate scroll limits
-        let content_height = chat_lines.len();
-        let visible_height = area.height.saturating_sub(2) as usize; // Account for borders
-        let max_scroll = content_height.saturating_sub(visible_height);
-        
-        // Auto-scroll to bottom if enabled and there's new content
-        let scroll_pos = if state.auto_scroll_chat {
-            max_scroll
-        } else {
-            state.chat_scroll.min(max_scroll)
-        };
-        
-        // Update the stored scroll position to prevent phantom scrolling
-        state.chat_scroll = scroll_pos;
-
-        // Slice visible content
-        let visible_lines = if content_height > visible_height {
-            chat_lines.into_iter().skip(scroll_pos).take(visible_height).collect()
-        } else {
-            chat_lines
-        };
-
-        let text = Text::from(visible_lines);
-        
-        let border_style = if state.focused_panel == 1 {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        let title = if state.focused_panel == 1 {
-            " Chat [FOCUSED] "
-        } else {
-            " Chat "
-        };
-        
-        let chat = Paragraph::new(text)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(border_style)
-                .title(title))
-            .wrap(ratatui::widgets::Wrap { trim: false });
-        
-        f.render_widget(chat, area);
-
-        // Render scrollbar if needed
-        if content_height > visible_height {
-            let scrollbar = Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"));
-            // The scrollbar state should use the maximum scroll position as the total
-            // When scroll_pos equals max_scroll, the thumb should be at the bottom
+            // Calculate scroll limits
+            let content_height = chat_lines.len();
+            let visible_height = area.height.saturating_sub(2) as usize; // Account for borders
             let max_scroll = content_height.saturating_sub(visible_height);
-            let mut scrollbar_state = ScrollbarState::new(max_scroll.max(1))
-                .position(scroll_pos);
-            f.render_stateful_widget(
-                scrollbar,
-                area.inner(&ratatui::layout::Margin { vertical: 1, horizontal: 0 }),
-                &mut scrollbar_state,
-            );
+            
+            // Auto-scroll to bottom if enabled and there's new content
+            let scroll_pos = if state.auto_scroll_chat {
+                max_scroll
+            } else {
+                state.chat_scroll.min(max_scroll)
+            };
+            
+            // Update the stored scroll position to prevent phantom scrolling
+            state.chat_scroll = scroll_pos;
+
+            // Slice visible content
+            let visible_lines = if content_height > visible_height {
+                chat_lines.into_iter().skip(scroll_pos).take(visible_height).collect()
+            } else {
+                chat_lines
+            };
+
+            let text = Text::from(visible_lines);
+            
+            let border_style = if state.focused_panel == 1 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            let title = if state.focused_panel == 1 {
+                " Chat [FOCUSED] "
+            } else {
+                " Chat "
+            };
+            
+            let chat = Paragraph::new(text)
+                .block(Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(border_style)
+                    .title(title))
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            
+            f.render_widget(chat, area);
+
+            // Render scrollbar if needed
+            if content_height > visible_height {
+                let scrollbar = Scrollbar::default()
+                    .orientation(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(Some("↑"))
+                    .end_symbol(Some("↓"));
+                // The scrollbar state should use the maximum scroll position as the total
+                // When scroll_pos equals max_scroll, the thumb should be at the bottom
+                let max_scroll = content_height.saturating_sub(visible_height);
+                let mut scrollbar_state = ScrollbarState::new(max_scroll.max(1))
+                    .position(scroll_pos);
+                f.render_stateful_widget(
+                    scrollbar,
+                    area.inner(&ratatui::layout::Margin { vertical: 1, horizontal: 0 }),
+                    &mut scrollbar_state,
+                );
+            }
         }
     }
 

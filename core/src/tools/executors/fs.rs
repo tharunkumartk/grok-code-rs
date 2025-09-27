@@ -1,6 +1,7 @@
 use crate::events::{AppEvent, EventSender};
 use crate::tools::types::*;
 use serde_json::Value;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::time::Instant;
 use walkdir::WalkDir;
@@ -8,7 +9,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 mod simple_edit;
 
-use simple_edit::SimpleEditPlanner;
+use simple_edit::{SimpleEditPlanner, normalize_newlines};
 
 /// File system operations executor
 pub struct FsExecutor {
@@ -354,6 +355,263 @@ impl FsExecutor {
             planner.apply_op(op).await?;
         }
         planner.finish().await
+    }
+
+    pub async fn execute_set_file(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_set_file_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_set_file_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsSetFileArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsSetFile arguments: {}", e))?;
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Setting file contents: {}", args.path),
+        }).ok();
+
+        let path = Path::new(&args.path);
+
+        // Create parent directories if needed
+        if args.create_if_missing {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await
+                    .map_err(|e| format!("Failed to create parent directories for {}: {}", args.path, e))?;
+            }
+        }
+
+        // Write the file
+        tokio::fs::write(&args.path, &args.contents).await
+            .map_err(|e| format!("Failed to write file {}: {}", args.path, e))?;
+
+        let result = FsWriteResult {
+            bytes_written: args.contents.len() as u64,
+        };
+
+        let result_value = serde_json::to_value(result).unwrap();
+        let truncated_result = self.truncate_result(result_value.clone());
+
+        self.event_sender.send(AppEvent::ToolResult {
+            id,
+            payload: result_value,
+        }).ok();
+
+        Ok(truncated_result)
+    }
+
+    pub async fn execute_replace_once(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_replace_once_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_replace_once_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsReplaceOnceArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsReplaceOnce arguments: {}", e))?;
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Replacing text in file: {}", args.path),
+        }).ok();
+
+        let content = tokio::fs::read_to_string(&args.path).await
+            .map_err(|e| format!("Failed to read file {}: {}", args.path, e))?;
+
+        let normalized_find = normalize_newlines(&args.find);
+        let normalized_replace = normalize_newlines(&args.replace);
+
+        if let Some(idx) = content.find(&normalized_find) {
+            let mut new_content = content.clone();
+            new_content.replace_range(idx..idx + normalized_find.len(), &normalized_replace);
+
+            tokio::fs::write(&args.path, &new_content).await
+                .map_err(|e| format!("Failed to write file {}: {}", args.path, e))?;
+
+            let result = FsSimpleOpResult { success: true };
+            let result_value = serde_json::to_value(result).unwrap();
+
+            self.event_sender.send(AppEvent::ToolResult {
+                id,
+                payload: result_value.clone(),
+            }).ok();
+
+            Ok(result_value)
+        } else {
+            Err(format!("Text '{}' not found in file {}", args.find, args.path))
+        }
+    }
+
+    pub async fn execute_insert_before(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_insert_before_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_insert_before_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsInsertBeforeArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsInsertBefore arguments: {}", e))?;
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Inserting text before anchor in file: {}", args.path),
+        }).ok();
+
+        let content = tokio::fs::read_to_string(&args.path).await
+            .map_err(|e| format!("Failed to read file {}: {}", args.path, e))?;
+
+        let normalized_anchor = normalize_newlines(&args.anchor);
+        let normalized_insert = normalize_newlines(&args.insert);
+
+        if let Some(idx) = content.find(&normalized_anchor) {
+            let mut new_content = content.clone();
+            new_content.insert_str(idx, &normalized_insert);
+
+            tokio::fs::write(&args.path, &new_content).await
+                .map_err(|e| format!("Failed to write file {}: {}", args.path, e))?;
+
+            let result = FsSimpleOpResult { success: true };
+            let result_value = serde_json::to_value(result).unwrap();
+
+            self.event_sender.send(AppEvent::ToolResult {
+                id,
+                payload: result_value.clone(),
+            }).ok();
+
+            Ok(result_value)
+        } else {
+            Err(format!("Anchor text '{}' not found in file {}", args.anchor, args.path))
+        }
+    }
+
+    pub async fn execute_insert_after(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_insert_after_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_insert_after_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsInsertAfterArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsInsertAfter arguments: {}", e))?;
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Inserting text after anchor in file: {}", args.path),
+        }).ok();
+
+        let content = tokio::fs::read_to_string(&args.path).await
+            .map_err(|e| format!("Failed to read file {}: {}", args.path, e))?;
+
+        let normalized_anchor = normalize_newlines(&args.anchor);
+        let normalized_insert = normalize_newlines(&args.insert);
+
+        if let Some(idx) = content.find(&normalized_anchor) {
+            let mut new_content = content.clone();
+            new_content.insert_str(idx + normalized_anchor.len(), &normalized_insert);
+
+            tokio::fs::write(&args.path, &new_content).await
+                .map_err(|e| format!("Failed to write file {}: {}", args.path, e))?;
+
+            let result = FsSimpleOpResult { success: true };
+            let result_value = serde_json::to_value(result).unwrap();
+
+            self.event_sender.send(AppEvent::ToolResult {
+                id,
+                payload: result_value.clone(),
+            }).ok();
+
+            Ok(result_value)
+        } else {
+            Err(format!("Anchor text '{}' not found in file {}", args.anchor, args.path))
+        }
+    }
+
+    pub async fn execute_delete_file(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_delete_file_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_delete_file_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsDeleteFileArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsDeleteFile arguments: {}", e))?;
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Deleting file: {}", args.path),
+        }).ok();
+
+        match tokio::fs::remove_file(&args.path).await {
+            Ok(_) => {
+                let result = FsSimpleOpResult { success: true };
+                let result_value = serde_json::to_value(result).unwrap();
+
+                self.event_sender.send(AppEvent::ToolResult {
+                    id,
+                    payload: result_value.clone(),
+                }).ok();
+
+                Ok(result_value)
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                let result = FsSimpleOpResult { success: true }; // File doesn't exist, consider it "deleted"
+                let result_value = serde_json::to_value(result).unwrap();
+
+                self.event_sender.send(AppEvent::ToolResult {
+                    id,
+                    payload: result_value.clone(),
+                }).ok();
+
+                Ok(result_value)
+            }
+            Err(e) => Err(format!("Failed to delete file {}: {}", args.path, e)),
+        }
+    }
+
+    pub async fn execute_rename_file(&self, id: String, args: Value) -> Result<(), String> {
+        let _result = self.execute_rename_file_with_result(id, args).await?;
+        Ok(())
+    }
+
+    pub async fn execute_rename_file_with_result(&self, id: String, args: Value) -> Result<Value, String> {
+        let args: FsRenameFileArgs = serde_json::from_value(args)
+            .map_err(|e| format!("Invalid FsRenameFile arguments: {}", e))?;
+
+        if args.path == args.to {
+            return Err("Source and destination paths are the same".to_string());
+        }
+
+        self.event_sender.send(AppEvent::ToolProgress {
+            id: id.clone(),
+            message: format!("Renaming file {} to {}", args.path, args.to),
+        }).ok();
+
+        // Check if source exists
+        if !Path::new(&args.path).exists() {
+            return Err(format!("Source file not found: {}", args.path));
+        }
+
+        // Check if destination already exists
+        if Path::new(&args.to).exists() {
+            return Err(format!("Destination already exists: {}", args.to));
+        }
+
+        // Create parent directories for destination if needed
+        if let Some(parent) = Path::new(&args.to).parent() {
+            if !parent.as_os_str().is_empty() {
+                tokio::fs::create_dir_all(parent).await
+                    .map_err(|e| format!("Failed to create parent directories for {}: {}", args.to, e))?;
+            }
+        }
+
+        tokio::fs::rename(&args.path, &args.to).await
+            .map_err(|e| format!("Failed to rename {} to {}: {}", args.path, args.to, e))?;
+
+        let result = FsSimpleOpResult { success: true };
+        let result_value = serde_json::to_value(result).unwrap();
+
+        self.event_sender.send(AppEvent::ToolResult {
+            id,
+            payload: result_value.clone(),
+        }).ok();
+
+        Ok(result_value)
     }
 
     pub async fn execute_find(&self, id: String, args: Value) -> Result<(), String> {

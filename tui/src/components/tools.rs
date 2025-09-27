@@ -256,9 +256,59 @@ impl ToolsComponent {
                         }).collect();
                         all_lines.push(Line::from(format!("  Op types: {}", op_types.join(", "))));
                     }
-                    if patch_args.dry_run {
-                        all_lines.push(Line::from("  Mode: Dry run"));
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsSetFile => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsSetFileArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  File: {}", args.path)));
+                    all_lines.push(Line::from(format!("  Content length: {} bytes", args.contents.len())));
+                    if args.create_if_missing {
+                        all_lines.push(Line::from("  Create directories: yes"));
                     }
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsReplaceOnce => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsReplaceOnceArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  File: {}", args.path)));
+                    all_lines.push(Line::from(format!("  Find: {}", args.find)));
+                    all_lines.push(Line::from(format!("  Replace: {}", args.replace)));
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsInsertBefore => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsInsertBeforeArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  File: {}", args.path)));
+                    all_lines.push(Line::from(format!("  Anchor: {}", args.anchor)));
+                    all_lines.push(Line::from(format!("  Insert: {}", args.insert)));
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsInsertAfter => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsInsertAfterArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  File: {}", args.path)));
+                    all_lines.push(Line::from(format!("  Anchor: {}", args.anchor)));
+                    all_lines.push(Line::from(format!("  Insert: {}", args.insert)));
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsDeleteFile => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsDeleteFileArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  File: {}", args.path)));
+                    all_lines.push(Line::from(""));
+                }
+            }
+            grok_core::ToolName::FsRenameFile => {
+                if let Ok(args) = serde_json::from_value::<grok_core::tools::FsRenameFileArgs>(args.clone()) {
+                    all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    all_lines.push(Line::from(format!("  From: {}", args.path)));
+                    all_lines.push(Line::from(format!("  To: {}", args.to)));
                     all_lines.push(Line::from(""));
                 }
             }
@@ -431,7 +481,7 @@ impl ToolsComponent {
                 if let Some(arr) = result.as_array() {
                     if arr.is_empty() {
                         return "No relevant files returned".to_string();
-                    }
+                    }           
             
                     // Keep UI snappy if the list is huge
                     const MAX_ITEMS: usize = 200;

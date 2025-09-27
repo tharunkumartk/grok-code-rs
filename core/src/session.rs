@@ -155,8 +155,7 @@ impl Session {
             tool_info: None,
         };
         self.messages.push(message);
-        // Auto-save after agent response
-        let _ = self.save();
+        
     }
     
     /// Add a system message to the conversation

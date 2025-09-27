@@ -350,7 +350,7 @@ async fn path_exists_on_disk(path: &str) -> Result<bool, String> {
     }
 }
 
-fn normalize_newlines(text: &str) -> String {
+pub(crate) fn normalize_newlines(text: &str) -> String {
     if text.contains('\r') {
         text.replace("\r\n", "\n").replace('\r', "\n")
     } else {

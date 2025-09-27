@@ -66,6 +66,12 @@ impl ToolExecutor {
             ToolName::FsSearch => self.fs_executor.execute_search_with_result(id.clone(), args).await,
             ToolName::FsWrite => self.fs_executor.execute_write_with_result(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch_with_result(id.clone(), args).await,
+            ToolName::FsSetFile => self.fs_executor.execute_set_file_with_result(id.clone(), args).await,
+            ToolName::FsReplaceOnce => self.fs_executor.execute_replace_once_with_result(id.clone(), args).await,
+            ToolName::FsInsertBefore => self.fs_executor.execute_insert_before_with_result(id.clone(), args).await,
+            ToolName::FsInsertAfter => self.fs_executor.execute_insert_after_with_result(id.clone(), args).await,
+            ToolName::FsDeleteFile => self.fs_executor.execute_delete_file_with_result(id.clone(), args).await,
+            ToolName::FsRenameFile => self.fs_executor.execute_rename_file_with_result(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find_with_result(id.clone(), args).await,
             ToolName::ShellExec => self.shell_executor.execute_with_result(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols_with_result(id.clone(), args).await,
@@ -104,6 +110,12 @@ impl ToolExecutor {
             ToolName::FsSearch => self.fs_executor.execute_search(id.clone(), args).await,
             ToolName::FsWrite => self.fs_executor.execute_write(id.clone(), args).await,
             ToolName::FsApplyPatch => self.fs_executor.execute_apply_patch(id.clone(), args).await,
+            ToolName::FsSetFile => self.fs_executor.execute_set_file(id.clone(), args).await,
+            ToolName::FsReplaceOnce => self.fs_executor.execute_replace_once(id.clone(), args).await,
+            ToolName::FsInsertBefore => self.fs_executor.execute_insert_before(id.clone(), args).await,
+            ToolName::FsInsertAfter => self.fs_executor.execute_insert_after(id.clone(), args).await,
+            ToolName::FsDeleteFile => self.fs_executor.execute_delete_file(id.clone(), args).await,
+            ToolName::FsRenameFile => self.fs_executor.execute_rename_file(id.clone(), args).await,
             ToolName::FsFind => self.fs_executor.execute_find(id.clone(), args).await,
             ToolName::ShellExec => self.shell_executor.execute(id.clone(), args).await,
             ToolName::CodeSymbols => self.code_executor.execute_symbols(id.clone(), args).await,
@@ -146,6 +158,48 @@ impl ToolExecutor {
                 }
             }
             ToolName::FsApplyPatch => "Applying patch".to_string(),
+            ToolName::FsSetFile => {
+                if let Ok(args) = serde_json::from_value::<FsSetFileArgs>(args.clone()) {
+                    format!("Setting file contents: {}", args.path)
+                } else {
+                    "Setting file contents".to_string()
+                }
+            }
+            ToolName::FsReplaceOnce => {
+                if let Ok(args) = serde_json::from_value::<FsReplaceOnceArgs>(args.clone()) {
+                    format!("Replacing text in file: {}", args.path)
+                } else {
+                    "Replacing text in file".to_string()
+                }
+            }
+            ToolName::FsInsertBefore => {
+                if let Ok(args) = serde_json::from_value::<FsInsertBeforeArgs>(args.clone()) {
+                    format!("Inserting text before anchor in file: {}", args.path)
+                } else {
+                    "Inserting text before anchor".to_string()
+                }
+            }
+            ToolName::FsInsertAfter => {
+                if let Ok(args) = serde_json::from_value::<FsInsertAfterArgs>(args.clone()) {
+                    format!("Inserting text after anchor in file: {}", args.path)
+                } else {
+                    "Inserting text after anchor".to_string()
+                }
+            }
+            ToolName::FsDeleteFile => {
+                if let Ok(args) = serde_json::from_value::<FsDeleteFileArgs>(args.clone()) {
+                    format!("Deleting file: {}", args.path)
+                } else {
+                    "Deleting file".to_string()
+                }
+            }
+            ToolName::FsRenameFile => {
+                if let Ok(args) = serde_json::from_value::<FsRenameFileArgs>(args.clone()) {
+                    format!("Renaming file {} to {}", args.path, args.to)
+                } else {
+                    "Renaming file".to_string()
+                }
+            }
             ToolName::FsFind => {
                 if let Ok(args) = serde_json::from_value::<FsFindArgs>(args.clone()) {
                     format!("Finding files: {}", args.pattern)

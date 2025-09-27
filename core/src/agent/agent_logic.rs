@@ -82,16 +82,22 @@ impl MultiModelAgent {
         })
     }
 
-    fn map_tool_name(&self, name: &str) -> Option<ToolName> {
+    fn tool_name_from_string(&self, name: &str) -> Option<ToolName> {
         match name {
             "fs.read" => Some(ToolName::FsRead),
             "fs.search" => Some(ToolName::FsSearch),
             "fs.write" => Some(ToolName::FsWrite),
             "fs.apply_patch" => Some(ToolName::FsApplyPatch),
+            "fs.set_file" => Some(ToolName::FsSetFile),
+            "fs.replace_once" => Some(ToolName::FsReplaceOnce),
+            "fs.insert_before" => Some(ToolName::FsInsertBefore),
+            "fs.insert_after" => Some(ToolName::FsInsertAfter),
+            "fs.delete_file" => Some(ToolName::FsDeleteFile),
+            "fs.rename_file" => Some(ToolName::FsRenameFile),
             "fs.find" => Some(ToolName::FsFind),
             "shell.exec" => Some(ToolName::ShellExec),
-            "large_context_fetch" => Some(ToolName::LargeContextFetch),
             "code.symbols" => Some(ToolName::CodeSymbols),
+            "large_context_fetch" => Some(ToolName::LargeContextFetch),
             _ => None,
         }
     }
@@ -106,6 +112,12 @@ impl MultiModelAgent {
                     ToolName::FsSearch => "fs.search",
                     ToolName::FsWrite => "fs.write",
                     ToolName::FsApplyPatch => "fs.apply_patch",
+                    ToolName::FsSetFile => "fs.set_file",
+                    ToolName::FsReplaceOnce => "fs.replace_once",
+                    ToolName::FsInsertBefore => "fs.insert_before",
+                    ToolName::FsInsertAfter => "fs.insert_after",
+                    ToolName::FsDeleteFile => "fs.delete_file",
+                    ToolName::FsRenameFile => "fs.rename_file",
                     ToolName::FsFind => "fs.find",
                     ToolName::ShellExec => "shell.exec",
                     ToolName::CodeSymbols => "code.symbols",
@@ -311,7 +323,7 @@ impl Agent for MultiModelAgent {
                     
                     for call in tool_calls {
                         let name = call.function.name;
-                        let tool_name = self.map_tool_name(&name)
+                        let tool_name = self.tool_name_from_string(&name)
                             .ok_or_else(|| AgentError::Processing(format!("unknown tool: {}", name)))?;
                         let args: Value = serde_json::from_str(&call.function.arguments)
                             .map_err(|e| AgentError::Processing(format!("invalid tool args: {}", e)))?;

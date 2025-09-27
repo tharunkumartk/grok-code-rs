@@ -125,53 +125,147 @@ impl ToolRegistry {
             timeout_ms: Some(5000),
         });
 
-        // fs.apply_patch
-        self.specs.insert(ToolName::FsApplyPatch, ToolSpec {
-            name: ToolName::FsApplyPatch,
+    
+
+        // fs.set_file
+        self.specs.insert(ToolName::FsSetFile, ToolSpec {
+            name: ToolName::FsSetFile,
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "dry_run": { "type": "boolean", "description": "Dry run without applying changes" },
-                    "ops": {
-                        "type": "array",
-                        "description": "Sequence of filesystem edit operations",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",
-                                    "enum": ["set_file", "replace_once", "insert_before", "insert_after", "delete_file", "rename_file"]
-                                },
-                                "path": { "type": "string" },
-                                "contents": { "type": "string" },
-                                "find": { "type": "string" },
-                                "replace": { "type": "string" },
-                                "anchor": { "type": "string" },
-                                "insert": { "type": "string" },
-                                "to": { "type": "string" }
-                            },
-                            "required": ["type"],
-                            "additionalProperties": false
-                        }
-                    }
+                    "path": { "type": "string", "description": "File path to create or overwrite" },
+                    "contents": { "type": "string", "description": "File contents" },
+                    "create_if_missing": { "type": "boolean", "default": true, "description": "Create parent directories if they don't exist (default: true)" }
                 },
-                "required": ["ops"]
+                "required": ["path", "contents"]
             }),
             output_schema: json!({
                 "type": "object",
                 "properties": {
-                    "success": { "type": "boolean" },
-                    "rejected_hunks": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                    },
-                    "summary": { "type": "string" }
+                    "bytes_written": { "type": "integer" }
                 },
-                "required": ["success", "summary"]
+                "required": ["bytes_written"]
             }),
             streaming: false,
             side_effects: true,
-            timeout_ms: Some(10000),
+            timeout_ms: Some(5000),
+        });
+
+        // fs.replace_once
+        self.specs.insert(ToolName::FsReplaceOnce, ToolSpec {
+            name: ToolName::FsReplaceOnce,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to modify" },
+                    "find": { "type": "string", "description": "Text to find and replace" },
+                    "replace": { "type": "string", "description": "Replacement text" }
+                },
+                "required": ["path", "find", "replace"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" }
+                },
+                "required": ["success"]
+            }),
+            streaming: false,
+            side_effects: true,
+            timeout_ms: Some(5000),
+        });
+
+        // fs.insert_before
+        self.specs.insert(ToolName::FsInsertBefore, ToolSpec {
+            name: ToolName::FsInsertBefore,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to modify" },
+                    "anchor": { "type": "string", "description": "Text to find as anchor point" },
+                    "insert": { "type": "string", "description": "Text to insert before the anchor" }
+                },
+                "required": ["path", "anchor", "insert"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" }
+                },
+                "required": ["success"]
+            }),
+            streaming: false,
+            side_effects: true,
+            timeout_ms: Some(5000),
+        });
+
+        // fs.insert_after
+        self.specs.insert(ToolName::FsInsertAfter, ToolSpec {
+            name: ToolName::FsInsertAfter,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to modify" },
+                    "anchor": { "type": "string", "description": "Text to find as anchor point" },
+                    "insert": { "type": "string", "description": "Text to insert after the anchor" }
+                },
+                "required": ["path", "anchor", "insert"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" }
+                },
+                "required": ["success"]
+            }),
+            streaming: false,
+            side_effects: true,
+            timeout_ms: Some(5000),
+        });
+
+        // fs.delete_file
+        self.specs.insert(ToolName::FsDeleteFile, ToolSpec {
+            name: ToolName::FsDeleteFile,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to delete" }
+                },
+                "required": ["path"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" }
+                },
+                "required": ["success"]
+            }),
+            streaming: false,
+            side_effects: true,
+            timeout_ms: Some(5000),
+        });
+
+        // fs.rename_file
+        self.specs.insert(ToolName::FsRenameFile, ToolSpec {
+            name: ToolName::FsRenameFile,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Current file path" },
+                    "to": { "type": "string", "description": "New file path" }
+                },
+                "required": ["path", "to"]
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "success": { "type": "boolean" }
+                },
+                "required": ["success"]
+            }),
+            streaming: false,
+            side_effects: true,
+            timeout_ms: Some(5000),
         });
 
         // fs.find

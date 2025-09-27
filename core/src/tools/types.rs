@@ -87,6 +87,53 @@ pub struct FsApplyPatchResult {
     pub summary: String,
 }
 
+// Individual operation argument types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsSetFileArgs {
+    pub path: String,
+    pub contents: String,
+    #[serde(default = "default_create_if_missing")]
+    pub create_if_missing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsReplaceOnceArgs {
+    pub path: String,
+    pub find: String,
+    pub replace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsInsertBeforeArgs {
+    pub path: String,
+    pub anchor: String,
+    pub insert: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsInsertAfterArgs {
+    pub path: String,
+    pub anchor: String,
+    pub insert: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsDeleteFileArgs {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsRenameFileArgs {
+    pub path: String,
+    pub to: String,
+}
+
+// Result types for individual operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsSimpleOpResult {
+    pub success: bool,
+}
+
 // File finding tool types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FsFindArgs {

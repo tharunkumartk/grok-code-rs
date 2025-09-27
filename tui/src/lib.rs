@@ -1,3 +1,5 @@
+//! TUI library for Grok Code, providing the terminal user interface with app structure, components, and event handling.
+
 pub mod app;
 pub mod components;
 pub mod events;
