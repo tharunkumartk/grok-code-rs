@@ -131,26 +131,29 @@ fn test_fs_write_result_serialization() {
     assert_eq!(deserialized.bytes_written, result.bytes_written);
 }
 
+
 #[test]
 fn test_fs_apply_patch_args_serialization() {
-    let patch = r#"--- old_file.txt
-+++ new_file.txt
-@@ -1,3 +1,3 @@
- line 1
--old line 2
-+new line 2
- line 3"#;
-    
     let args = FsApplyPatchArgs {
-        unified_diff: patch.to_string(),
         dry_run: true,
+        ops: vec![
+            SimpleEditOp::SetFile {
+                path: "file.txt".to_string(),
+                contents: "hello\n".to_string(),
+            },
+            SimpleEditOp::ReplaceOnce {
+                path: "file.txt".to_string(),
+                find: "hello\n".to_string(),
+                replace: "world\n".to_string(),
+            },
+        ],
     };
-    
+
     let serialized = to_value(&args).unwrap();
     let deserialized: FsApplyPatchArgs = from_value(serialized).unwrap();
-    
-    assert_eq!(deserialized.unified_diff, args.unified_diff);
+
     assert_eq!(deserialized.dry_run, args.dry_run);
+    assert_eq!(deserialized.ops.len(), args.ops.len());
 }
 
 #[test]

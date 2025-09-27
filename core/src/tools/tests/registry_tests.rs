@@ -330,8 +330,14 @@ async fn test_tool_registry_comprehensive_validation() {
         (
             ToolName::FsApplyPatch,
             json!({
-                "unified_diff": "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new",
-                "dry_run": false
+                "dry_run": false,
+                "ops": [
+                    {
+                        "type": "set_file",
+                        "path": "/tmp/example.txt",
+                        "contents": "example"
+                    }
+                ]
             }),
         ),
         (

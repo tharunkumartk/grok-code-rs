@@ -6,6 +6,10 @@ use std::time::Instant;
 use walkdir::WalkDir;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
+mod simple_edit;
+
+use simple_edit::SimpleEditPlanner;
+
 /// File system operations executor
 pub struct FsExecutor {
     event_sender: EventSender,
@@ -301,41 +305,41 @@ impl FsExecutor {
     }
 
     pub async fn execute_apply_patch_with_result(&self, id: String, args: Value) -> Result<Value, String> {
-        let args: FsApplyPatchArgs = serde_json::from_value(args)
+        let spec: FsApplyPatchArgs = serde_json::from_value(args)
             .map_err(|e| format!("Invalid FsApplyPatch arguments: {}", e))?;
 
-        // Send progress event
         self.event_sender.send(AppEvent::ToolProgress {
             id: id.clone(),
-            message: "Analyzing patch...".to_string(),
+            message: format!("Planning {} edit operation(s)...", spec.ops.len()),
         }).ok();
 
-        // Simple patch parser - this is a basic implementation
-        // In a production system, you'd want a more robust patch parser
-        let patch_result = self.apply_unified_diff(&args.unified_diff, args.dry_run).await;
+        let summary = self.apply_simple_edit_spec(&spec).await;
 
         self.event_sender.send(AppEvent::ToolProgress {
             id: id.clone(),
-            message: if args.dry_run { "Dry run completed" } else { "Applying changes..." }.to_string(),
+            message: if spec.dry_run {
+                "Dry run completed".to_string()
+            } else {
+                "Finished applying edits".to_string()
+            },
         }).ok();
 
-        let result = match patch_result {
-            Ok(summary) => FsApplyPatchResult {
+        let result = match summary {
+            Ok(summary_text) => FsApplyPatchResult {
                 success: true,
                 rejected_hunks: None,
-                summary,
+                summary: summary_text,
             },
             Err(e) => FsApplyPatchResult {
                 success: false,
                 rejected_hunks: Some(vec![e.clone()]),
-                summary: format!("Patch failed: {}", e),
+                summary: format!("Failed to apply edits: {}", e),
             },
         };
 
         let result_value = serde_json::to_value(result).unwrap();
         let truncated_result = self.truncate_result(result_value.clone());
 
-        // Send result event for UI
         self.event_sender.send(AppEvent::ToolResult {
             id,
             payload: result_value,
@@ -344,203 +348,12 @@ impl FsExecutor {
         Ok(truncated_result)
     }
 
-    async fn apply_unified_diff(&self, diff: &str, dry_run: bool) -> Result<String, String> {
-        let lines: Vec<&str> = diff.lines().collect();
-        if lines.len() < 3 {
-            return Err("Invalid patch format".to_string());
+    async fn apply_simple_edit_spec(&self, spec: &FsApplyPatchArgs) -> Result<String, String> {
+        let mut planner = SimpleEditPlanner::new(spec.dry_run);
+        for op in &spec.ops {
+            planner.apply_op(op).await?;
         }
-
-        // Parse header lines to get file paths
-        let mut old_file = None;
-        let mut new_file = None;
-        
-        for line in &lines {
-            if line.starts_with("--- ") {
-                old_file = Some(line[4..].trim());
-            } else if line.starts_with("+++ ") {
-                new_file = Some(line[4..].trim());
-            }
-        }
-
-        let old_path = old_file.ok_or("Could not find old file path in patch")?;
-        let new_path = new_file.ok_or("Could not find new file path in patch")?;
-        
-        // Handle special cases
-        let is_new_file = old_path == "/dev/null";
-        let is_delete_file = new_path == "/dev/null";
-        
-        let file_path = if is_new_file {
-            new_path
-        } else if is_delete_file {
-            old_path
-        } else {
-            new_path
-        };
-        
-        if dry_run {
-            if is_new_file {
-                return Ok(format!("Dry run: would create new file {}", file_path));
-            } else if is_delete_file {
-                return Ok(format!("Dry run: would delete file {}", file_path));
-            } else {
-                return Ok(format!("Dry run: would modify {}", file_path));
-            }
-        }
-
-        // Handle file creation
-        if is_new_file {
-            return self.apply_new_file_patch(new_path, &lines).await;
-        }
-        
-        // Handle file deletion
-        if is_delete_file {
-            return self.apply_delete_file_patch(old_path).await;
-        }
-        
-        // Handle file modification
-        self.apply_modify_file_patch(file_path, &lines).await
-    }
-    
-    async fn apply_new_file_patch(&self, file_path: &str, lines: &[&str]) -> Result<String, String> {
-        let mut content = String::new();
-        
-        // Find the hunk start and extract added lines
-        let mut in_hunk = false;
-        for line in lines {
-            if line.starts_with("@@") {
-                in_hunk = true;
-                continue;
-            }
-            
-            if in_hunk {
-                if line.starts_with('+') && !line.starts_with("+++") {
-                    content.push_str(&line[1..]);
-                    content.push('\n');
-                }
-            }
-        }
-        
-        // Remove trailing newline if present to match expected behavior
-        if content.ends_with('\n') {
-            content.pop();
-        }
-        
-        // Create parent directories if needed
-        let path = std::path::Path::new(file_path);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await
-                .map_err(|e| format!("Failed to create parent directories: {}", e))?;
-        }
-        
-        // Write the new file
-        tokio::fs::write(file_path, content).await
-            .map_err(|e| format!("Failed to create new file {}: {}", file_path, e))?;
-        
-        Ok(format!("Created new file: {}", file_path))
-    }
-    
-    async fn apply_delete_file_patch(&self, file_path: &str) -> Result<String, String> {
-        if !std::path::Path::new(file_path).exists() {
-            return Err(format!("File to delete does not exist: {}", file_path));
-        }
-        
-        tokio::fs::remove_file(file_path).await
-            .map_err(|e| format!("Failed to delete file {}: {}", file_path, e))?;
-        
-        Ok(format!("Deleted file: {}", file_path))
-    }
-    
-    async fn apply_modify_file_patch(&self, file_path: &str, lines: &[&str]) -> Result<String, String> {
-        // Read the original file
-        let original_content = tokio::fs::read_to_string(file_path).await
-            .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
-        
-        let original_lines: Vec<&str> = original_content.lines().collect();
-        let mut result_lines = Vec::new();
-        let mut original_index = 0;
-        
-        // Parse hunks and apply changes
-        let mut i = 0;
-        while i < lines.len() {
-            let line = lines[i];
-            
-            if line.starts_with("@@") {
-                // Parse hunk header to get line numbers
-                let hunk_parts: Vec<&str> = line.split_whitespace().collect();
-                if hunk_parts.len() >= 3 {
-                    // Extract old line start from "-start,count" format
-                    let old_range = hunk_parts[1];
-                    if let Some(old_start_str) = old_range.strip_prefix('-') {
-                        if let Some(comma_pos) = old_start_str.find(',') {
-                            if let Ok(old_start) = old_start_str[..comma_pos].parse::<usize>() {
-                                // Copy lines up to the hunk start (1-based to 0-based)
-                                let hunk_start = old_start.saturating_sub(1);
-                                while original_index < hunk_start && original_index < original_lines.len() {
-                                    result_lines.push(original_lines[original_index].to_string());
-                                    original_index += 1;
-                                }
-                            }
-                        } else if let Ok(old_start) = old_start_str.parse::<usize>() {
-                            // Handle single line format (no comma)
-                            let hunk_start = old_start.saturating_sub(1);
-                            while original_index < hunk_start && original_index < original_lines.len() {
-                                result_lines.push(original_lines[original_index].to_string());
-                                original_index += 1;
-                            }
-                        }
-                    }
-                }
-                
-                // Process hunk content
-                i += 1;
-                while i < lines.len() && !lines[i].starts_with("@@") {
-                    let hunk_line = lines[i];
-                    
-                    if hunk_line.starts_with(' ') {
-                        // Context line - keep as is
-                        if original_index < original_lines.len() {
-                            result_lines.push(original_lines[original_index].to_string());
-                            original_index += 1;
-                        }
-                    } else if hunk_line.starts_with('-') && !hunk_line.starts_with("---") {
-                        // Deleted line - skip in original
-                        if original_index < original_lines.len() {
-                            original_index += 1;
-                        }
-                    } else if hunk_line.starts_with('+') && !hunk_line.starts_with("+++") {
-                        // Added line - add to result
-                        result_lines.push(hunk_line[1..].to_string());
-                    }
-                    
-                    i += 1;
-                }
-                continue;
-            }
-            
-            i += 1;
-        }
-        
-        // Add remaining original lines
-        while original_index < original_lines.len() {
-            result_lines.push(original_lines[original_index].to_string());
-            original_index += 1;
-        }
-        
-        let new_content = result_lines.join("\n");
-        
-        // Write the modified file
-        tokio::fs::write(file_path, new_content).await
-            .map_err(|e| format!("Failed to write modified file {}: {}", file_path, e))?;
-        
-        let additions = lines.iter()
-            .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
-            .count();
-        let deletions = lines.iter()
-            .filter(|line| line.starts_with('-') && !line.starts_with("---"))
-            .count();
-        
-        Ok(format!("Modified file {}: {} insertions(+), {} deletions(-)", 
-                   file_path, additions, deletions))
+        planner.finish().await
     }
 
     pub async fn execute_find(&self, id: String, args: Value) -> Result<(), String> {

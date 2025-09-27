@@ -244,7 +244,18 @@ impl ToolsComponent {
             grok_core::ToolName::FsApplyPatch => {
                 if let Ok(patch_args) = serde_json::from_value::<grok_core::tools::FsApplyPatchArgs>(args.clone()) {
                     all_lines.push(Line::from(Span::styled("Parameters:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-                    all_lines.push(Line::from(format!("  Diff size: {} characters", patch_args.unified_diff.len())));
+                    all_lines.push(Line::from(format!("  Operations: {}", patch_args.ops.len())));
+                    if !patch_args.ops.is_empty() {
+                        let op_types: Vec<&'static str> = patch_args.ops.iter().map(|op| match op {
+                            grok_core::tools::SimpleEditOp::SetFile { .. } => "set_file",
+                            grok_core::tools::SimpleEditOp::ReplaceOnce { .. } => "replace_once",
+                            grok_core::tools::SimpleEditOp::InsertBefore { .. } => "insert_before",
+                            grok_core::tools::SimpleEditOp::InsertAfter { .. } => "insert_after",
+                            grok_core::tools::SimpleEditOp::DeleteFile { .. } => "delete_file",
+                            grok_core::tools::SimpleEditOp::RenameFile { .. } => "rename_file",
+                        }).collect();
+                        all_lines.push(Line::from(format!("  Op types: {}", op_types.join(", "))));
+                    }
                     if patch_args.dry_run {
                         all_lines.push(Line::from("  Mode: Dry run"));
                     }
