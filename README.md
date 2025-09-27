@@ -104,7 +104,7 @@ The app runs in a `tokio::main` loop, processing terminal events and app events 
 - **Hot Reload**: Use `cargo watch -x run` for dev.
 
 ## Limitations & Roadmap
-- **Patch Tool**: Basic unified diff parser; needs robust hunk application.
+- **Patch Tool**: Simple edit spec (set_file/replace/insert/delete/rename) with dry-run simulation and fail-fast validation.
 - **Streaming Responses**: Deltas accumulate; implement true streaming.
 - **Headless Mode**: CLI currently launches TUI; add non-interactive mode.
 - **More Agents**: Support local models (e.g., via Ollama).

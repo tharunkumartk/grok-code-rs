@@ -168,32 +168,36 @@ async fn test_tool_executor_fs_find() {
 async fn test_tool_executor_fs_apply_patch() {
     let temp_dir = create_temp_dir().await;
     let _file_path = create_temp_file(temp_dir.path(), "test.rs", "fn main() {}").await;
-    
+
     let (sender, mut receiver) = setup_event_bus();
     let executor = ToolExecutor::new(sender);
-    
-    let patch = format!(
-        "--- {}/test.rs\n+++ {}/test.rs\n@@ -1,1 +1,1 @@\n-fn main() {{}}\n+fn main() {{ println!(\"Hello\"); }}",
-        temp_dir.path().display(),
-        temp_dir.path().display()
-    );
-    
+
+    let file_path = temp_dir.path().join("test.rs");
+    let file_path_str = file_path.to_string_lossy().to_string();
+
     let args = json!({
-        "unified_diff": patch,
-        "dry_run": true
+        "dry_run": true,
+        "ops": [
+            {
+                "type": "replace_once",
+                "path": file_path_str,
+                "find": "fn main() {}",
+                "replace": "fn main() { println!(\"Hello\"); }"
+            }
+        ]
     });
-    
+
     let result = executor.execute_tool_with_result(
         "test_id".to_string(),
         ToolName::FsApplyPatch,
         args
     ).await;
-    
+
     assert!(result.is_ok());
     let result_value = result.unwrap();
     let patch_result: FsApplyPatchResult = serde_json::from_value(result_value).unwrap();
     assert!(patch_result.success);
-    
+
     let events = collect_events(&mut receiver, 5).await; // More events for patch (2 progress)
     let (ok, _) = find_tool_end_event(&events).unwrap();
     assert!(ok);

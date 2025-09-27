@@ -63,9 +63,21 @@ pub struct FsWriteResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SimpleEditOp {
+    SetFile { path: String, contents: String },
+    ReplaceOnce { path: String, find: String, replace: String },
+    InsertBefore { path: String, anchor: String, insert: String },
+    InsertAfter { path: String, anchor: String, insert: String },
+    DeleteFile { path: String },
+    RenameFile { path: String, to: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FsApplyPatchArgs {
-    pub unified_diff: String,
+    #[serde(default)]
     pub dry_run: bool,
+    pub ops: Vec<SimpleEditOp>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

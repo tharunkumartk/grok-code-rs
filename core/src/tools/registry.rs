@@ -131,10 +131,31 @@ impl ToolRegistry {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "unified_diff": { "type": "string", "description": "Unified diff to apply" },
-                    "dry_run": { "type": "boolean", "description": "Dry run without applying changes" }
+                    "dry_run": { "type": "boolean", "description": "Dry run without applying changes" },
+                    "ops": {
+                        "type": "array",
+                        "description": "Sequence of filesystem edit operations",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["set_file", "replace_once", "insert_before", "insert_after", "delete_file", "rename_file"]
+                                },
+                                "path": { "type": "string" },
+                                "contents": { "type": "string" },
+                                "find": { "type": "string" },
+                                "replace": { "type": "string" },
+                                "anchor": { "type": "string" },
+                                "insert": { "type": "string" },
+                                "to": { "type": "string" }
+                            },
+                            "required": ["type"],
+                            "additionalProperties": false
+                        }
+                    }
                 },
-                "required": ["unified_diff"]
+                "required": ["ops"]
             }),
             output_schema: json!({
                 "type": "object",
